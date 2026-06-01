@@ -2,11 +2,6 @@
   "name": "project",
   "tree": {
     "$className": "DataModel",
-    "ReplicatedFirst": {
-      "$className": "ReplicatedFirst",
-      "$ignoreUnknownInstances": true,
-      "$path": "src/ReplicatedFirst"
-    },
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "$ignoreUnknownInstances": true,
@@ -22,19 +17,19 @@
       "$ignoreUnknownInstances": true,
       "$path": "src/ServerStorage"
     },
+    "StarterGui": {
+      "$className": "StarterGui",
+      "$ignoreUnknownInstances": true,
+      "$path": "src/StarterGui"
+    },
     "StarterPlayer": {
       "$className": "StarterPlayer",
-      "StarterCharacterScripts": {
-        "$className": "StarterCharacterScripts",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
         "$ignoreUnknownInstances": true,
-        "$path": "src/StarterPlayer/StarterCharacterScripts"
+        "$path": "src/StarterPlayer/StarterPlayerScripts"
       },
       "$ignoreUnknownInstances": true
-    },
-    "Workspace": {
-      "$className": "Workspace",
-      "$ignoreUnknownInstances": true,
-      "$path": "src/Workspace"
     }
   }
 }
