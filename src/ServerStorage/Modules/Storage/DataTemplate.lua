@@ -46,6 +46,10 @@ return {
 	["Consumables"] = {},
 
 	["CompletedTutorial"] = false,
+	["Onboarding"] = {
+		["Stage"] = "spawn",
+		["Completed"] = false,
+	},
 
 	["Clan"] = "",
 

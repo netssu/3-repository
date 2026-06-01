@@ -12,6 +12,34 @@ local DailyRewards = {
 	[7] = { StatName = "Diamond", Amount = 1 },
 }
 
+local function HasCompletedTutorial(userData: Folder): boolean
+	if not userData then
+		return false
+	end
+
+	local completedTutorial = userData:FindFirstChild("CompletedTutorial")
+	if completedTutorial and completedTutorial:IsA("BoolValue") and completedTutorial.Value then
+		return true
+	end
+
+	local onboarding = userData:FindFirstChild("Onboarding")
+	if not onboarding then
+		return false
+	end
+
+	local onboardingCompleted = onboarding:FindFirstChild("Completed")
+	if onboardingCompleted and onboardingCompleted:IsA("BoolValue") and onboardingCompleted.Value then
+		return true
+	end
+
+	local stage = onboarding:FindFirstChild("Stage")
+	if stage and stage:IsA("StringValue") and stage.Value == "completed" then
+		return true
+	end
+
+	return false
+end
+
 local function GetCurrentDay()
 	if RunService:IsStudio() then
 		return math.floor(os.time() / 60)
@@ -24,6 +52,11 @@ local function ClaimDailyReward(player)
 	local userData = player:FindFirstChild("UserData")
 	if not userData then
 		warn(player.Name.." has no UserData folder")
+		return false
+	end
+
+	if not HasCompletedTutorial(userData) then
+		ReplicatedStorage.Remotes.Notification.SendNotification:FireClient(player, "Complete the tutorial to unlock Daily Rewards.", "Error")
 		return false
 	end
 
