@@ -704,6 +704,48 @@ local function handleInteractiveZones(): ()
 	end
 end
 
+local function resolveLevelProgressUi()
+	-- New UI (preferred): TD.LevelFR
+	local levelFrame = mainGui:FindFirstChild("LevelFR")
+	if levelFrame then
+		local levelLabel = levelFrame:FindFirstChild("GameModeTX") or levelFrame:FindFirstChild("Level")
+		if not levelLabel then
+			levelLabel = levelFrame:FindFirstChild("GameModeTX", true) or levelFrame:FindFirstChild("Level", true)
+		end
+
+		local outerBar = levelFrame:FindFirstChild("BarBG")
+		local levelBar = nil
+
+		if outerBar then
+			levelBar = outerBar:FindFirstChild("Bar")
+			if not levelBar then
+				local nestedBarBG = outerBar:FindFirstChild("BarBG")
+				if nestedBarBG and nestedBarBG ~= outerBar then
+					levelBar = nestedBarBG
+				end
+			end
+		end
+
+		if levelLabel and levelBar then
+			return levelLabel, levelBar
+		end
+	end
+
+	-- Old UI fallback: TD.Bottom.ProgressBar
+	local bottom = mainGui:FindFirstChild("Bottom")
+	local oldContainer = bottom and bottom:FindFirstChild("ProgressBar")
+	if oldContainer then
+		local levelLabel = oldContainer:FindFirstChild("Level")
+		local levelBar = oldContainer:FindFirstChild("Bar")
+		if levelLabel and levelBar then
+			return levelLabel, levelBar
+		end
+	end
+
+	warn("[PlayerGui] Level progress UI not found (LevelFR or Bottom.ProgressBar).")
+	return nil, nil
+end
+
 local function handleLevels(): ()
 	local levelData = require(replicatedStorage.Modules.StoredData.LevelData)
 
@@ -711,16 +753,22 @@ local function handleLevels(): ()
 	local exp = userData:WaitForChild("EXP")
 	local level = userData:WaitForChild("Level")
 
-	local levelBarContainer = mainGui:WaitForChild("Bottom"):WaitForChild("ProgressBar")
-	local levelLabel = levelBarContainer:WaitForChild("Level")
-	local levelBar = levelBarContainer:WaitForChild("Bar")
+	local levelLabel, levelBar = resolveLevelProgressUi()
+	if not levelLabel or not levelBar then
+		return
+	end
 
 	local function updateUI(): ()
 		local currentLevel = level.Value
 		local currentXP = exp.Value
 		local maxXP = levelData[tostring(currentLevel)] and levelData[tostring(currentLevel)].MaxXP or 100
 		levelLabel.Text = string.format("Level %d [%d/%d]", currentLevel, currentXP, maxXP)
-		levelBar.Size = UDim2.new(math.clamp(currentXP / maxXP, 0, 1), 0, 1, 0)
+		levelBar.Size = UDim2.new(
+			math.clamp(currentXP / maxXP, 0, 1),
+			0,
+			levelBar.Size.Y.Scale,
+			levelBar.Size.Y.Offset
+		)
 	end
 
 	local function checkLevelUp(): ()
