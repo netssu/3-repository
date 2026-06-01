@@ -33,6 +33,34 @@ local function getUserData(): Folder
 	return player:WaitForChild("UserData")
 end
 
+local function hasCompletedTutorial(userData: Folder?): boolean
+	if not userData then
+		return false
+	end
+
+	local completedTutorial = userData:FindFirstChild("CompletedTutorial")
+	if completedTutorial and completedTutorial:IsA("BoolValue") and completedTutorial.Value then
+		return true
+	end
+
+	local onboarding = userData:FindFirstChild("Onboarding")
+	if not onboarding then
+		return false
+	end
+
+	local onboardingCompleted = onboarding:FindFirstChild("Completed")
+	if onboardingCompleted and onboardingCompleted:IsA("BoolValue") and onboardingCompleted.Value then
+		return true
+	end
+
+	local stage = onboarding:FindFirstChild("Stage")
+	if stage and stage:IsA("StringValue") and stage.Value == "completed" then
+		return true
+	end
+
+	return false
+end
+
 local function getSavedDifficulty(): string
 	local userData = getUserData()
 	local mapFolder = userData:FindFirstChild("Map")
@@ -245,6 +273,11 @@ local function setupButtons(): ()
 
 				local frameName = button:GetAttribute("FrameName")
 				if not frameName then
+					return
+				end
+
+				if frameName == "Daily" and not hasCompletedTutorial(userData) then
+					sendNotification("Complete the tutorial to unlock Daily Rewards.", "Error")
 					return
 				end
 
@@ -666,6 +699,11 @@ local function handleInteractiveZones(): ()
 						hideAllCore()
 						popupFrame(mainGui:WaitForChild("Frames"):WaitForChild("Squad"))
 						return
+					elseif part.Name == "Daily" then
+						if not hasCompletedTutorial(getUserData()) then
+							sendNotification("Complete the tutorial to unlock Daily Rewards.", "Error")
+							return
+						end
 					elseif part.Name == "AFK" then
 						playerGui.TD.Frames.AFK.Reward.Text = "Nothing yet!"
 						remotes.AFK.BeginAFK:FireServer()
@@ -838,6 +876,12 @@ local function handleDailyRewards(): ()
 	local dailyFrame = mainGui:WaitForChild("Frames"):WaitForChild("Daily")
 	local streakText = dailyFrame:WaitForChild("Streak")
 	local claimButton = dailyFrame:WaitForChild("Claim")
+	local userData = getUserData()
+	local completedTutorial = userData:FindFirstChild("CompletedTutorial")
+	local onboarding = userData:FindFirstChild("Onboarding")
+	local onboardingCompleted = onboarding and onboarding:FindFirstChild("Completed")
+	local onboardingStage = onboarding and onboarding:FindFirstChild("Stage")
+	local lastBlockedNotification = 0
 
 	local days = {
 		[1] = dailyFrame:FindFirstChild("Day1"),
@@ -849,8 +893,21 @@ local function handleDailyRewards(): ()
 		[7] = dailyFrame:FindFirstChild("Day7"),
 	}
 
+	local function canAccessDaily(): boolean
+		return hasCompletedTutorial(userData)
+	end
+
+	local function notifyTutorialLock()
+		local now = tick()
+		if now - lastBlockedNotification < 1 then
+			return
+		end
+
+		lastBlockedNotification = now
+		sendNotification("Complete the tutorial to unlock Daily Rewards.", "Error")
+	end
+
 	local function updateStreak(): ()
-		local userData = getUserData()
 		local streakData = userData:WaitForChild("Streak")
 		streakText.Text = streakData.Value
 
@@ -861,7 +918,46 @@ local function handleDailyRewards(): ()
 		end
 	end
 
+	local function applyDailyAccessState()
+		local unlocked = canAccessDaily()
+
+		claimButton.Active = unlocked
+		claimButton.AutoButtonColor = unlocked
+
+		if not unlocked and dailyFrame.Visible then
+			dailyFrame.Visible = false
+		end
+
+		if unlocked then
+			updateStreak()
+		end
+	end
+
+	dailyFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+		if dailyFrame.Visible and not canAccessDaily() then
+			dailyFrame.Visible = false
+			notifyTutorialLock()
+		end
+	end)
+
+	if completedTutorial then
+		completedTutorial:GetPropertyChangedSignal("Value"):Connect(applyDailyAccessState)
+	end
+
+	if onboardingCompleted then
+		onboardingCompleted:GetPropertyChangedSignal("Value"):Connect(applyDailyAccessState)
+	end
+
+	if onboardingStage then
+		onboardingStage:GetPropertyChangedSignal("Value"):Connect(applyDailyAccessState)
+	end
+
 	claimButton.Activated:Connect(function()
+		if not canAccessDaily() then
+			notifyTutorialLock()
+			return
+		end
+
 		remotes.Daily.claimReward:FireServer()
 		task.spawn(function()
 			task.wait(0.5)
@@ -869,7 +965,7 @@ local function handleDailyRewards(): ()
 		end)
 	end)
 
-	updateStreak()
+	applyDailyAccessState()
 end
 
 local function handleBox(): ()
