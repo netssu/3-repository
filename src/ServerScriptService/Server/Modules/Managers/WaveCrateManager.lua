@@ -7,7 +7,70 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local StoredData = Modules:WaitForChild("StoredData")
 
-local WaveCrateData = require(StoredData:WaitForChild("WaveCrateData"))
+local function getFallbackWaveCrateData()
+	return {
+		DropChancePerWave = 0.35,
+		Rarities = {
+			Common = { Weight = 6200 },
+			Rare = { Weight = 2600 },
+			Epic = { Weight = 950 },
+			Legendary = { Weight = 250 },
+		},
+		Crates = {
+			DamageCrate = {
+				DisplayName = "Damage Crate",
+				DropWeight = 40,
+				AllowedRarities = {
+					Common = true,
+					Rare = true,
+					Epic = true,
+					Legendary = true,
+				},
+				EffectsByRarity = {
+					Common = { Multiplier = 1.15, Duration = 16 },
+					Rare = { Multiplier = 1.25, Duration = 20 },
+					Epic = { Multiplier = 1.35, Duration = 24 },
+					Legendary = { Multiplier = 1.5, Duration = 28 },
+				},
+			},
+			AirStrikeCrate = {
+				DisplayName = "Air Strike Crate",
+				DropWeight = 25,
+				AllowedRarities = {
+					Common = true,
+					Rare = true,
+					Epic = true,
+					Legendary = true,
+				},
+				EffectsByRarity = {
+					Common = { Damage = 90 },
+					Rare = { Damage = 140 },
+					Epic = { Damage = 220 },
+					Legendary = { Damage = 340 },
+				},
+			},
+			CoinCrate = {
+				DisplayName = "Coin Crate",
+				DropWeight = 35,
+				AllowedRarities = {
+					Common = true,
+					Rare = true,
+					Epic = true,
+					Legendary = true,
+				},
+				EffectsByRarity = {
+					Common = { Coins = 350, Lifetime = 8 },
+					Rare = { Coins = 650, Lifetime = 8 },
+					Epic = { Coins = 1100, Lifetime = 10 },
+					Legendary = { Coins = 1800, Lifetime = 12 },
+				},
+			},
+		},
+	}
+end
+
+local waveCrateDataModule = StoredData:FindFirstChild("WaveCrateData")
+local WaveCrateData = waveCrateDataModule and require(waveCrateDataModule) or getFallbackWaveCrateData()
 
 local NotificationRemote = Remotes:WaitForChild("Notification"):WaitForChild("SendNotification")
 
