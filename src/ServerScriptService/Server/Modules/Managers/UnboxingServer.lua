@@ -21,15 +21,8 @@ local function GenerateHash(length)
 	return hash
 end
 
-local function GetRandomUnitOfRarity(targetRarity)
-	local candidates = {}
-
-	for unitName, tier in pairs(CrateData.UnitTiers) do
-		if tier == targetRarity then
-			table.insert(candidates, unitName)
-		end
-	end
-
+local function GetRandomUnitOfRarity(boxType, targetRarity)
+	local candidates = CrateData.GetUnitsForBanner(boxType, targetRarity)
 	if #candidates > 0 then
 		return candidates[math.random(1, #candidates)]
 	end
@@ -133,7 +126,7 @@ end
 Remotes.Game.Unbox.OnServerEvent:Connect(function(Player, BoxType)
 	if ActiveUnboxes[Player] then return end
 
-	local BannerInfo = CrateData.Banners[BoxType]
+	local BannerInfo = CrateData.GetBanner(BoxType)
 	if not BannerInfo then return end
 
 	local UserData = Player:FindFirstChild("UserData")
@@ -189,7 +182,7 @@ Remotes.Game.Unbox.OnServerEvent:Connect(function(Player, BoxType)
 		end
 	end
 
-	local SelectedUnit = GetRandomUnitOfRarity(chosenRarity)
+	local SelectedUnit = GetRandomUnitOfRarity(BoxType, chosenRarity)
 
 	if not SelectedUnit then
 		SelectedUnit = "Scout" 
@@ -207,7 +200,7 @@ Remotes.Game.Unbox.OnServerEvent:Connect(function(Player, BoxType)
 end)
 
 Remotes.Game.PurchaseBox.OnServerEvent:Connect(function(Player, BoxType)
-	local BannerInfo = CrateData.Banners[BoxType]
+	local BannerInfo = CrateData.GetBanner(BoxType)
 	if not BannerInfo then return end
 
 	local UserData = Player:FindFirstChild("UserData")

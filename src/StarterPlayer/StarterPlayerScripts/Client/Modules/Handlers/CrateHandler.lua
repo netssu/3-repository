@@ -66,19 +66,21 @@ local function formatWithCommas(n)
 	return tostring(n):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
 end
 
---rotation logic
-local function getUnitsInRotation(targetRarity)
-	local allUnitsOfRarity = {}
+local function getBannerInfo(bannerName)
+	return CrateData.GetBanner(bannerName, os.time())
+end
 
-	for unitName, tier in pairs(CrateData.UnitTiers) do
-		if tier == targetRarity then
-			table.insert(allUnitsOfRarity, unitName)
-		end
+local function getUnitsInRotation(bannerName, targetRarity)
+	local bannerInfo = getBannerInfo(bannerName)
+	local allUnitsOfRarity = CrateData.GetUnitsForBanner(bannerName, targetRarity, os.time())
+
+	if #allUnitsOfRarity == 0 then
+		return {}
 	end
 
-	table.sort(allUnitsOfRarity) 
-
-	if #allUnitsOfRarity == 0 then return {} end
+	if bannerInfo and bannerInfo.DisableHourlyRotation then
+		return allUnitsOfRarity
+	end
 
 	local currentHour = math.floor(os.time() / 3600)
 	local rng = Random.new(currentHour)
@@ -88,10 +90,13 @@ local function getUnitsInRotation(targetRarity)
 	end
 
 	local rotatedUnits = {}
-	local available = {table.unpack(allUnitsOfRarity)} 
+	local available = { table.unpack(allUnitsOfRarity) }
 
-	for i = 1, 2 do
-		if #available == 0 then break end
+	for _ = 1, 2 do
+		if #available == 0 then
+			break
+		end
+
 		local idx = rng:NextInteger(1, #available)
 		table.insert(rotatedUnits, available[idx])
 		table.remove(available, idx)
@@ -102,12 +107,12 @@ end
 
 --helper to get the best unit
 local function getBestUnitForBanner(bannerName)
-	local bannerInfo = CrateData.Banners[bannerName]
+	local bannerInfo = getBannerInfo(bannerName)
 	if not bannerInfo then return nil end
 
 	for _, rarity in ipairs(RarityOrder) do
 		if bannerInfo.Rates[rarity] and bannerInfo.Rates[rarity] > 0 then
-			local units = getUnitsInRotation(rarity)
+			local units = getUnitsInRotation(bannerName, rarity)
 			if units and #units > 0 then
 				return units[1] 
 			end
@@ -115,6 +120,14 @@ local function getBestUnitForBanner(bannerName)
 	end
 
 	return "Scout"
+end
+
+local function formatRotationCountdown(secondsRemaining)
+	secondsRemaining = math.max(0, math.floor(secondsRemaining or 0))
+	local hours = math.floor(secondsRemaining / 3600)
+	local minutes = math.floor((secondsRemaining % 3600) / 60)
+	local seconds = secondsRemaining % 60
+	return string.format("%02d:%02d:%02d", hours, minutes, seconds)
 end
 
 -- Function to completely detach a button from GuiManager
@@ -231,6 +244,12 @@ local function HandleCrateUI()
 
 		--state
 		local SelectedCrate = "Normal"
+		local TemporaryButton = nil
+		local TemporaryButtonPriceText = nil
+		local TemporaryButtonNameLabel = nil
+		local TemporaryButtonTimerLabel = nil
+		local lastTemporaryBannerName = nil
+		local lastSecond = -1
 
 		--crate icon assets
 		local CrateIcons = {
@@ -238,11 +257,56 @@ local function HandleCrateUI()
 			Steel = "rbxassetid://78854786317873",
 			Golden = "rbxassetid://77544826310708",
 			Diamond = "rbxassetid://139414131564390",
+			Temporary = "rbxassetid://77544826310708",
 		}
+
+		local function applyPriceLabel(targetLabel, bannerInfo, useCurrencyColor)
+			if not targetLabel then
+				return
+			end
+
+			if bannerInfo then
+				local currencyData = CurrencyConfig[bannerInfo.Currency] or CurrencyConfig.Coins
+				if bannerInfo.Currency == "Gems" then
+					targetLabel.Text = currencyData.Symbol .. " " .. formatWithCommas(bannerInfo.Price)
+				else
+					targetLabel.Text = currencyData.Symbol .. formatWithCommas(bannerInfo.Price)
+				end
+
+				if useCurrencyColor then
+					targetLabel.TextColor3 = currencyData.Color
+				else
+					targetLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+				end
+			else
+				targetLabel.Text = "N/A"
+			end
+		end
+
+		local function refreshTemporaryButton()
+			if not TemporaryButton then
+				return
+			end
+
+			local activeBannerInfo, activeBannerName = CrateData.GetBanner("Temporary", os.time())
+			if not activeBannerInfo then
+				return
+			end
+
+			lastTemporaryBannerName = activeBannerName
+			TemporaryButton.BackgroundColor3 = activeBannerInfo.ThemeColor or Color3.fromRGB(70, 70, 70)
+			if TemporaryButtonNameLabel then
+				TemporaryButtonNameLabel.Text = activeBannerInfo.DisplayName
+			end
+			applyPriceLabel(TemporaryButtonPriceText, activeBannerInfo, false)
+			if TemporaryButtonTimerLabel then
+				TemporaryButtonTimerLabel.Text = formatRotationCountdown(CrateData.GetSecondsUntilNextTemporaryRotation(os.time()))
+			end
+		end
 
 		--update preview function
 		local function updatePreview(hideItemFrame)
-			local BannerInfo = CrateData.Banners[SelectedCrate]
+			local BannerInfo = getBannerInfo(SelectedCrate)
 
 			--toggle visibility
 			if not hideItemFrame then
@@ -253,6 +317,12 @@ local function HandleCrateUI()
 
 			--update labels
 			PreviewTitle.Text = BannerInfo and BannerInfo.DisplayName or SelectedCrate
+			TimerLabel.Visible = SelectedCrate == "Temporary"
+			if TimerLabel.Visible then
+				TimerLabel.Text = "ROTATES IN " .. formatRotationCountdown(CrateData.GetSecondsUntilNextTemporaryRotation(os.time()))
+			else
+				TimerLabel.Text = ""
+			end
 
 			--update pity
 			local pityFolder = UserData:FindFirstChild("BannerPity")
@@ -264,7 +334,14 @@ local function HandleCrateUI()
 			PityLabel.Text = "PITY: " .. currentPity .. " / " .. threshold
 
 			--update icon
-			if CrateIcons[SelectedCrate] then
+			if SelectedCrate == "Temporary" then
+				local bestUnit = getBestUnitForBanner(SelectedCrate)
+				if bestUnit and TowerData[bestUnit] and TowerData[bestUnit].ImageId then
+					CrateIcon.Image = "rbxassetid://" .. TowerData[bestUnit].ImageId
+				elseif CrateIcons.Temporary then
+					CrateIcon.Image = CrateIcons.Temporary
+				end
+			elseif CrateIcons[SelectedCrate] then
 				CrateIcon.Image = CrateIcons[SelectedCrate]
 			end
 
@@ -278,19 +355,13 @@ local function HandleCrateUI()
 			OwnedAmountLabel.Visible = true
 			OwnedAmountLabel.Text = "Owned: " .. ownedAmount
 			OpenButton.Visible = true 
+			PriceText.Parent.Icon.Visible = false
 
 			--update price
+			applyPriceLabel(PriceText, BannerInfo, true)
 			if BannerInfo then
 				local currencyData = CurrencyConfig[BannerInfo.Currency] or CurrencyConfig.Coins
-
-				PriceText.TextColor3 = currencyData.Color
 				PriceText.Parent.Icon.Visible = currencyData.UseIcon
-
-				if BannerInfo.Currency == "Gems" then
-					PriceText.Text = currencyData.Symbol .. " " .. formatWithCommas(BannerInfo.Price)
-				else
-					PriceText.Text = currencyData.Symbol .. formatWithCommas(BannerInfo.Price)
-				end
 			else
 				PriceText.Text = "???"
 			end
@@ -298,26 +369,27 @@ local function HandleCrateUI()
 
 		--timer loop WITH POSITION LOCK
 		RunService.Heartbeat:Connect(function()
-			if not CrateFrame.Visible then return end
-
-			local currentTime = os.time()
-			local nextHour = math.ceil(currentTime / 3600) * 3600
-			local diff = nextHour - currentTime
-
-			local minutes = math.floor(diff / 60)
-			local seconds = diff % 60
-
-			TimerLabel.Text = string.format("RESET: %02d:%02d", minutes, seconds)
-
-			if minutes < 1 then
-				TimerLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
-			else
-				TimerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-			end
-
 			-- FORCE POSITION EVERY FRAME (Double protection)
 			ChancesButton.AnchorPoint = Vector2.new(0.5, 0)
 			ChancesButton.Position = UDim2.new(0.5, 0, 0.22, 0)
+
+			local currentSecond = os.time()
+			if currentSecond == lastSecond then
+				return
+			end
+
+			lastSecond = currentSecond
+			refreshTemporaryButton()
+
+			if SelectedCrate == "Temporary" then
+				local currentBannerName = CrateData.ResolveBannerName("Temporary", currentSecond)
+				if currentBannerName ~= lastTemporaryBannerName then
+					refreshTemporaryButton()
+				end
+				if CrateFrame.Visible then
+					updatePreview()
+				end
+			end
 		end)
 
 		--setup crate buttons (REMOVED VIEWPORT LOGIC AS REQUESTED)
@@ -327,20 +399,15 @@ local function HandleCrateUI()
 			local Holder = Button:FindFirstChild("Holder")
 			local ButtonPriceText = Holder:FindFirstChild("Price")
 
-			local BannerInfo = CrateData.Banners[Button.Name]
-
-			if BannerInfo then
-				local currencyData = CurrencyConfig[BannerInfo.Currency] or CurrencyConfig.Coins
-
-				if BannerInfo.Currency == "Gems" then
-					ButtonPriceText.Text = currencyData.Symbol .. " " .. formatWithCommas(BannerInfo.Price)
-					ButtonPriceText.TextColor3 = currencyData.Color
-				else
-					ButtonPriceText.Text = currencyData.Symbol .. formatWithCommas(BannerInfo.Price)
-					ButtonPriceText.TextColor3 = Color3.fromRGB(255, 255, 255)
-				end
+			if Button.Name == "Temporary" then
+				TemporaryButton = Button
+				TemporaryButtonPriceText = ButtonPriceText
+				TemporaryButtonNameLabel = Button:FindFirstChild("WormName")
+				TemporaryButtonTimerLabel = Button:FindFirstChild("Timer")
+				refreshTemporaryButton()
 			else
-				ButtonPriceText.Text = "N/A"
+				local BannerInfo = getBannerInfo(Button.Name)
+				applyPriceLabel(ButtonPriceText, BannerInfo, BannerInfo and BannerInfo.Currency == "Gems")
 			end
 
 			Button.Activated:Connect(function()
@@ -372,7 +439,7 @@ local function HandleCrateUI()
 			end
 
 			if not SelectedCrate then return end
-			local BannerInfo = CrateData.Banners[SelectedCrate]
+			local BannerInfo = getBannerInfo(SelectedCrate)
 			if not BannerInfo then return end
 
 			local Rates = BannerInfo.Rates
@@ -382,7 +449,7 @@ local function HandleCrateUI()
 
 				if RateValue and RateValue > 0 then
 
-					local activeUnits = getUnitsInRotation(RarityName)
+					local activeUnits = getUnitsInRotation(SelectedCrate, RarityName)
 
 					if #activeUnits == 0 then continue end
 
@@ -431,7 +498,7 @@ local function HandleCrateUI()
 			local CratesFolder = UserData:FindFirstChild("Crates")
 			if not CratesFolder then return end
 
-			local BannerInfo = CrateData.Banners[SelectedCrate]
+			local BannerInfo = getBannerInfo(SelectedCrate)
 			if not BannerInfo then return end
 
 			local Crate = CratesFolder:FindFirstChild(SelectedCrate)

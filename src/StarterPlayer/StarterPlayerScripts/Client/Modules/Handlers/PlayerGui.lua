@@ -15,6 +15,7 @@ local storedData = modules:WaitForChild("StoredData")
 
 local Digits = require(replicatedStorage.Modules.Utility.Digits)
 local GuiManager = require(script.Parent.Parent.Managers.GuiManager)
+local LobbyCrateData = require(storedData:WaitForChild("LobbyCrateData"))
 local TowerData = require(storedData:WaitForChild("TowerData"))
 
 local mainGui = playerGui:WaitForChild("TD")
@@ -1017,16 +1018,60 @@ local function handleDailyRewards(): ()
 end
 
 local function handleBox(): ()
-	local goldCrate = workspace:FindFirstChild("Crate")
-	local uiPart = goldCrate:FindFirstChild("UIPart")
-	local billboard = uiPart:FindFirstChild("BillboardGui")
-	local timerLabel = billboard:FindFirstChild("Timer")
 	local userData = getUserData()
-	local remainingTimer = userData:FindFirstChild("RemainingTimer")
+	local timersFolder = userData:FindFirstChild("LobbyCrateTimers") or userData:WaitForChild("LobbyCrateTimers", 10)
+	local boundCrates = {}
+	local watchedFolders = {}
 
-	local function updateLabel(value: number): ()
+	local function isNumericValue(valueObject: Instance?): boolean
+		return valueObject ~= nil and (valueObject:IsA("IntValue") or valueObject:IsA("NumberValue"))
+	end
+
+	local function getCrateId(crateModel: Instance)
+		return LobbyCrateData.ResolveCrateId(crateModel.Name, crateModel:GetAttribute("CrateId"))
+	end
+
+	local function getTimerValue(crateId: string)
+		local activeTimersFolder = timersFolder or userData:FindFirstChild("LobbyCrateTimers")
+		if activeTimersFolder then
+			local timerValue = activeTimersFolder:FindFirstChild(crateId)
+			if isNumericValue(timerValue) then
+				return timerValue
+			end
+		end
+
+		if crateId == LobbyCrateData.LegacyCrateId then
+			local legacyTimer = userData:FindFirstChild("RemainingTimer")
+			if isNumericValue(legacyTimer) then
+				return legacyTimer
+			end
+		end
+
+		return nil
+	end
+
+	local function getTimerLabel(crateModel: Instance)
+		local uiPart = crateModel:FindFirstChild("UIPart", true)
+		if not uiPart then
+			return nil
+		end
+
+		local billboard = uiPart:FindFirstChild("BillboardGui")
+		if not billboard then
+			return nil
+		end
+
+		local timerLabel = billboard:FindFirstChild("Timer")
+		if timerLabel and timerLabel:IsA("TextLabel") then
+			return timerLabel
+		end
+
+		return nil
+	end
+
+	local function updateLabel(timerLabel: TextLabel, crateId: string, value: number): ()
 		if value <= 0 then
-			timerLabel.Text = "CLAIM!"
+			timerLabel.Text = LobbyCrateData.GetReadyText(crateId)
 			return
 		end
 
@@ -1041,8 +1086,59 @@ local function handleBox(): ()
 		end
 	end
 
-	updateLabel(remainingTimer.Value)
-	remainingTimer.Changed:Connect(updateLabel)
+	local function bindCrate(crateModel: Instance)
+		if boundCrates[crateModel] then
+			return
+		end
+
+		local crateId = getCrateId(crateModel)
+		local timerLabel = crateId and getTimerLabel(crateModel)
+		local timerValue = crateId and getTimerValue(crateId)
+		if not crateId or not timerLabel or not timerValue then
+			return
+		end
+
+		boundCrates[crateModel] = true
+		updateLabel(timerLabel, crateId, timerValue.Value)
+		timerValue.Changed:Connect(function(value)
+			updateLabel(timerLabel, crateId, value)
+		end)
+	end
+
+	local function watchFolder(folder: Instance?)
+		if not folder or watchedFolders[folder] then
+			return
+		end
+
+		watchedFolders[folder] = true
+		for _, child in ipairs(folder:GetChildren()) do
+			bindCrate(child)
+		end
+
+		folder.ChildAdded:Connect(function(child)
+			task.defer(bindCrate, child)
+		end)
+	end
+
+	for _, folderName in ipairs(LobbyCrateData.FolderNames) do
+		watchFolder(workspace:FindFirstChild(folderName))
+	end
+
+	local legacyCrate = workspace:FindFirstChild(LobbyCrateData.LegacyModelName)
+	if legacyCrate then
+		bindCrate(legacyCrate)
+	end
+
+	workspace.ChildAdded:Connect(function(child)
+		if child.Name == LobbyCrateData.LegacyModelName then
+			task.defer(bindCrate, child)
+			return
+		end
+
+		if table.find(LobbyCrateData.FolderNames, child.Name) then
+			task.defer(watchFolder, child)
+		end
+	end)
 end
 
 local function handleAFK(): ()

@@ -2,22 +2,24 @@
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local PhysicsService = game:GetService("PhysicsService")
-
--- crate touch part reference
-local CrateTouch = workspace.Crate.Crate
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 -- modules
-local LevelData = require(game.ReplicatedStorage.Modules.StoredData.LevelData)
-local QuestPool = require(game.ReplicatedStorage.Modules.StoredData.QuestsData)
+local LevelData = require(ReplicatedStorage.Modules.StoredData.LevelData)
+local LobbyCrateData = require(ReplicatedStorage.Modules.StoredData.LobbyCrateData)
+local QuestPool = require(ReplicatedStorage.Modules.StoredData.QuestsData)
+
+local NotificationRemote = ReplicatedStorage.Remotes.Notification.SendNotification
 
 -- config
 local MAX_LEVEL = 50
+local TOUCH_COOLDOWN = 3
 
 -- time constants in seconds
 local ONE_DAY = 86400
 local ONE_WEEK = 604800
 local ONE_MONTH = 2592000
-local CRATE_COOLDOWN = 14400
 
 -- waits until userdata exists and returns it
 local function getUserData(Player : Player)
@@ -30,6 +32,174 @@ local function getUserData(Player : Player)
 	until userData
 
 	return userData
+end
+
+local function isNumericValue(valueObject: Instance?): boolean
+	return valueObject ~= nil and (valueObject:IsA("IntValue") or valueObject:IsA("NumberValue"))
+end
+
+local function ensureTimerValue(parent: Instance, valueName: string, defaultValue: number)
+	local valueObject = parent:FindFirstChild(valueName)
+	if valueObject and not isNumericValue(valueObject) then
+		valueObject:Destroy()
+		valueObject = nil
+	end
+
+	if not valueObject then
+		valueObject = Instance.new("NumberValue")
+		valueObject.Name = valueName
+		valueObject.Value = defaultValue
+		valueObject.Parent = parent
+	end
+
+	return valueObject
+end
+
+local function ensureCratesFolder(userData: Folder)
+	local cratesFolder = userData:FindFirstChild("Crates")
+	if not cratesFolder then
+		cratesFolder = Instance.new("Folder")
+		cratesFolder.Name = "Crates"
+		cratesFolder.Parent = userData
+	end
+
+	return cratesFolder
+end
+
+local function syncLegacyLobbyTimer(userData: Folder, timersFolder: Folder)
+	local legacyTimer = userData:FindFirstChild("RemainingTimer")
+	local goldTimer = timersFolder:FindFirstChild(LobbyCrateData.LegacyCrateId)
+	if isNumericValue(legacyTimer) and isNumericValue(goldTimer) then
+		legacyTimer.Value = goldTimer.Value
+	end
+end
+
+local function ensureLobbyCrateTimers(userData: Folder)
+	local timersFolder = userData:FindFirstChild("LobbyCrateTimers")
+	if not timersFolder then
+		timersFolder = Instance.new("Folder")
+		timersFolder.Name = "LobbyCrateTimers"
+		timersFolder.Parent = userData
+	end
+
+	local legacyTimer = userData:FindFirstChild("RemainingTimer")
+
+	for _, crateId in ipairs(LobbyCrateData.Order) do
+		local defaultTimer = LobbyCrateData.GetCooldown(crateId)
+		if crateId == LobbyCrateData.LegacyCrateId and isNumericValue(legacyTimer) then
+			defaultTimer = legacyTimer.Value
+		end
+
+		ensureTimerValue(timersFolder, crateId, defaultTimer)
+	end
+
+	syncLegacyLobbyTimer(userData, timersFolder)
+
+	return timersFolder
+end
+
+local function getLobbyCrateId(crateModel: Instance)
+	return LobbyCrateData.ResolveCrateId(crateModel.Name, crateModel:GetAttribute("CrateId"))
+end
+
+local function getLobbyCrateTouchPart(crateModel: Instance)
+	if crateModel:IsA("BasePart") then
+		return crateModel
+	end
+
+	local touchPartName = crateModel:GetAttribute("TouchPartName")
+	if type(touchPartName) == "string" and touchPartName ~= "" then
+		local namedTouchPart = crateModel:FindFirstChild(touchPartName, true)
+		if namedTouchPart and namedTouchPart:IsA("BasePart") then
+			return namedTouchPart
+		end
+	end
+
+	for _, childName in ipairs({ "Crate", "TouchPart", "Hitbox" }) do
+		local child = crateModel:FindFirstChild(childName, true)
+		if child and child:IsA("BasePart") then
+			return child
+		end
+	end
+
+	if crateModel:IsA("Model") and crateModel.PrimaryPart then
+		return crateModel.PrimaryPart
+	end
+
+	return crateModel:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function getLobbyCrateModels()
+	local crateModels = {}
+	local seen = {}
+
+	for _, folderName in ipairs(LobbyCrateData.FolderNames) do
+		local folder = Workspace:FindFirstChild(folderName)
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if not seen[child] and getLobbyCrateId(child) then
+					seen[child] = true
+					table.insert(crateModels, child)
+				end
+			end
+		end
+	end
+
+	local legacyCrate = Workspace:FindFirstChild(LobbyCrateData.LegacyModelName)
+	if legacyCrate and not seen[legacyCrate] and getLobbyCrateId(legacyCrate) then
+		table.insert(crateModels, legacyCrate)
+	end
+
+	return crateModels
+end
+
+local function grantLobbyCrateReward(player: Player, userData: Folder, crateId: string)
+	local crateConfig = LobbyCrateData.GetConfig(crateId)
+	if not crateConfig or not crateConfig.Reward then
+		NotificationRemote:FireClient(player, "This crate has no reward configured.", "Error")
+		return false
+	end
+
+	local reward = crateConfig.Reward
+
+	if reward.Type == "Money" then
+		local money = userData:FindFirstChild("Money")
+		if not isNumericValue(money) then
+			NotificationRemote:FireClient(player, "This crate cannot grant money right now.", "Error")
+			return false
+		end
+
+		local amount = tonumber(reward.Amount) or 0
+		money.Value += amount
+		NotificationRemote:FireClient(player, string.format("You claimed the golden crate and got $%d", amount), "Success")
+		return true
+	end
+
+	if reward.Type == "InventoryCrate" then
+		local cratesFolder = ensureCratesFolder(userData)
+		local crateName = tostring(reward.CrateName or "")
+		local amount = math.max(1, tonumber(reward.Amount) or 1)
+		local crateValue = cratesFolder:FindFirstChild(crateName)
+
+		if crateValue and not isNumericValue(crateValue) then
+			crateValue:Destroy()
+			crateValue = nil
+		end
+
+		if not crateValue then
+			crateValue = Instance.new("IntValue")
+			crateValue.Name = crateName
+			crateValue.Value = 0
+			crateValue.Parent = cratesFolder
+		end
+
+		crateValue.Value += amount
+		NotificationRemote:FireClient(player, string.format("You claimed %dx %s Crate", amount, crateName), "Success")
+		return true
+	end
+
+	NotificationRemote:FireClient(player, "This crate reward type is not supported.", "Error")
+	return false
 end
 
 -- applies quest progress from teleport data when coming from another place
@@ -369,10 +539,11 @@ local function setupPlayer(Player: Player)
 	end
 
 	-- teleport to spawn
-	Character:PivotTo(workspace.SpawnPos.CFrame)
+	Character:PivotTo(Workspace.SpawnPos.CFrame)
 
 	local UserData = Player:WaitForChild("UserData", 5)
 	if not UserData then return end
+	ensureLobbyCrateTimers(UserData)
 
 	local PlayTime = UserData:FindFirstChild("Statistics"):FindFirstChild("TimePlaying")
 
@@ -397,34 +568,95 @@ local function setupPlayer(Player: Player)
 end
 
 -- crate touch handling
-local TOUCH_COOLDOWN = 3
 local recentTouches = {}
+local registeredLobbyCrates = {}
+local watchedLobbyFolders = {}
 
-CrateTouch.Touched:Connect(function(hit)
-	local player = Players:GetPlayerFromCharacter(hit.Parent)
-	if not player then return end
+local function registerTouchCooldown(player: Player, crateId: string): boolean
+	local touchKey = string.format("%d:%s", player.UserId, crateId)
+	if recentTouches[touchKey] then
+		return false
+	end
 
-	-- debounce check
-	if recentTouches[player] then return end
-	recentTouches[player] = true
+	recentTouches[touchKey] = true
 	task.delay(TOUCH_COOLDOWN, function()
-		recentTouches[player] = nil
+		recentTouches[touchKey] = nil
 	end)
 
-	local userData = player:FindFirstChild("UserData")
-	if not userData then return end
+	return true
+end
 
-	local timer = userData:FindFirstChild("RemainingTimer")
-	local money = userData:FindFirstChild("Money")
-	if not timer or not money then return end
-
-	-- check if crate is ready to claim
-	if timer.Value <= 0 then
-		local reward = 1200
-		money.Value += reward
-		timer.Value = CRATE_COOLDOWN
-		game.ReplicatedStorage.Remotes.Notification.SendNotification:FireClient(player, "You claimed the golden crate and got $" .. reward, "Success")
+local function handleLobbyCrateTouch(crateId: string, hit: BasePart)
+	local player = Players:GetPlayerFromCharacter(hit.Parent)
+	if not player or not registerTouchCooldown(player, crateId) then
 		return
+	end
+
+	local userData = player:FindFirstChild("UserData")
+	if not userData then
+		return
+	end
+
+	local timersFolder = ensureLobbyCrateTimers(userData)
+	local timerValue = timersFolder:FindFirstChild(crateId)
+	if not isNumericValue(timerValue) or timerValue.Value > 0 then
+		return
+	end
+
+	if grantLobbyCrateReward(player, userData, crateId) then
+		timerValue.Value = LobbyCrateData.GetCooldown(crateId)
+		syncLegacyLobbyTimer(userData, timersFolder)
+	end
+end
+
+local function connectLobbyCrate(crateModel: Instance)
+	if registeredLobbyCrates[crateModel] then
+		return
+	end
+
+	local crateId = getLobbyCrateId(crateModel)
+	local touchPart = crateId and getLobbyCrateTouchPart(crateModel)
+	if not crateId or not touchPart then
+		return
+	end
+
+	registeredLobbyCrates[crateModel] = true
+	touchPart.Touched:Connect(function(hit)
+		handleLobbyCrateTouch(crateId, hit)
+	end)
+end
+
+local function watchLobbyFolder(folder: Instance?)
+	if not folder or watchedLobbyFolders[folder] then
+		return
+	end
+
+	watchedLobbyFolders[folder] = true
+	for _, child in ipairs(folder:GetChildren()) do
+		connectLobbyCrate(child)
+	end
+
+	folder.ChildAdded:Connect(function(child)
+		task.defer(connectLobbyCrate, child)
+	end)
+end
+
+for _, crateModel in ipairs(getLobbyCrateModels()) do
+	connectLobbyCrate(crateModel)
+end
+
+for _, folderName in ipairs(LobbyCrateData.FolderNames) do
+	watchLobbyFolder(Workspace:FindFirstChild(folderName))
+end
+
+Workspace.ChildAdded:Connect(function(child)
+	if child.Name == LobbyCrateData.LegacyModelName then
+		task.defer(connectLobbyCrate, child)
+		return
+	end
+
+	if table.find(LobbyCrateData.FolderNames, child.Name) then
+		task.defer(watchLobbyFolder, child)
 	end
 end)
 
@@ -437,11 +669,14 @@ task.spawn(function()
 			local userData = player:FindFirstChild("UserData")
 			if not userData then continue end
 
-			-- countdown remaining timer
-			local remaining = userData:FindFirstChild("RemainingTimer")
-			if remaining and remaining.Value > 0 then
-				remaining.Value -= 1
+			local timersFolder = ensureLobbyCrateTimers(userData)
+			for _, crateId in ipairs(LobbyCrateData.Order) do
+				local timerValue = timersFolder:FindFirstChild(crateId)
+				if isNumericValue(timerValue) and timerValue.Value > 0 then
+					timerValue.Value = math.max(0, timerValue.Value - 1)
+				end
 			end
+			syncLegacyLobbyTimer(userData, timersFolder)
 
 			-- increment playtime
 			local stats = userData:FindFirstChild("Statistics")

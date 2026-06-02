@@ -11,6 +11,12 @@ return {
 
 	["RemainingTimer"] = 14400,
 
+	["LobbyCrateTimers"] = {
+		["LobbyGold"] = 14400,
+		["LobbySteel"] = 21600,
+		["LobbyDiamond"] = 43200,
+	},
+
 	["Map"] = {
 		Level = "Frosty Peaks",
 		Difficulty = "Normal",
