@@ -15,7 +15,6 @@ local storedData = modules:WaitForChild("StoredData")
 
 local Digits = require(replicatedStorage.Modules.Utility.Digits)
 local GuiManager = require(script.Parent.Parent.Managers.GuiManager)
-local LobbyCrateData = require(storedData:WaitForChild("LobbyCrateData"))
 local TowerData = require(storedData:WaitForChild("TowerData"))
 
 local mainGui = playerGui:WaitForChild("TD")
@@ -550,25 +549,88 @@ local function handlePlayButton(): ()
 		end
 	end
 end
+local function getHotbarUiRoot(): Instance?
+	local bottom = mainGui:FindFirstChild("Bottom")
+	if bottom then
+		local bottomHotbar = bottom:FindFirstChild("Hotbar")
+		if bottomHotbar then
+			return bottomHotbar
+		end
+	end
+
+	local rootHotbar = mainGui:FindFirstChild("Hotbar")
+	if rootHotbar then
+		return rootHotbar
+	end
+
+	return mainGui:FindFirstChild("Hotbar", true)
+end
+
 local function updateHotbarSlot(slot, hotBar, towerData): ()
 	local slotNumber = slot.Name
-	local uiSlot = hotBar:FindFirstChild(slotNumber)
+	local uiSlot = hotBar and hotBar:FindFirstChild(slotNumber)
+	if not uiSlot then
+		return
+	end
+
+	local holder = uiSlot:FindFirstChild("Holder")
+	local unitIcon = uiSlot:FindFirstChild("UnitIcon")
+	local nameLabel = uiSlot:FindFirstChild("NameTX") or uiSlot:FindFirstChild("Name")
+	local numberLabel = uiSlot:FindFirstChild("ItemNumberTX") or uiSlot:FindFirstChild("Number")
+	local priceLabel = holder and (holder:FindFirstChild("Price") or holder:FindFirstChild("Cost"))
+
+	if numberLabel and (numberLabel:IsA("TextLabel") or numberLabel:IsA("TextBox")) then
+		numberLabel.Text = tostring(slotNumber)
+	end
 
 	if slot.Value == "" then
-		local unitIcon = uiSlot:FindFirstChild("UnitIcon")
 		if unitIcon then
 			unitIcon.Image = ""
-			uiSlot.Holder.Visible = false
+		end
+		if holder then
+			holder.Visible = false
+		end
+		if nameLabel and (nameLabel:IsA("TextLabel") or nameLabel:IsA("TextBox")) then
+			nameLabel.Text = ""
+		end
+		if priceLabel and (priceLabel:IsA("TextLabel") or priceLabel:IsA("TextBox")) then
+			priceLabel.Text = ""
 		end
 		return
 	end
 
-	local imageId = towerData[slot.Value] and towerData[slot.Value].ImageId
-	local unitIcon = uiSlot:FindFirstChild("UnitIcon")
+	local towerInfo = towerData[slot.Value]
+	if not towerInfo then
+		if unitIcon then
+			unitIcon.Image = ""
+		end
+		if holder then
+			holder.Visible = false
+		end
+		if nameLabel and (nameLabel:IsA("TextLabel") or nameLabel:IsA("TextBox")) then
+			nameLabel.Text = ""
+		end
+		return
+	end
 
-	uiSlot.Holder.Price.Text = `${towerData[slot.Value].Price}`
-	uiSlot.Holder.Visible = true
-	unitIcon.Image = "rbxassetid://" .. imageId
+	local imageId = towerInfo.ImageId
+	local displayName = tostring(slot.Value):gsub("_%d+$", "")
+
+	if holder then
+		holder.Visible = true
+	end
+
+	if priceLabel and (priceLabel:IsA("TextLabel") or priceLabel:IsA("TextBox")) then
+		priceLabel.Text = tostring(towerInfo.Price or "")
+	end
+
+	if nameLabel and (nameLabel:IsA("TextLabel") or nameLabel:IsA("TextBox")) then
+		nameLabel.Text = displayName
+	end
+
+	if unitIcon and imageId then
+		unitIcon.Image = "rbxassetid://" .. imageId
+	end
 end
 
 local function setupHotbar(): ()
@@ -576,23 +638,40 @@ local function setupHotbar(): ()
 	local userData = getUserData()
 	local level = userData:WaitForChild("Level")
 	local inventoryFolder = userData:WaitForChild("Hotbar")
-	local hotBar = mainGui:WaitForChild("Bottom"):WaitForChild("Hotbar")
-
-	if level.Value >= 15 then
-		local level15 = hotBar:WaitForChild("Level15")
-		local level9 = hotBar:WaitForChild("Level9")
-		local slot5 = hotBar:WaitForChild("5")
-		local slot6 = hotBar:WaitForChild("6")
-		level15.Visible = false
-		level9.Visible = false
-		slot5.Visible = true
-		slot6.Visible = true
-	elseif level.Value >= 10 then
-		local level9 = hotBar:WaitForChild("Level9")
-		local slot5 = hotBar:WaitForChild("5")
-		level9.Visible = false
-		slot5.Visible = true
+	local hotBar = getHotbarUiRoot()
+	if not hotBar then
+		warn("[PlayerGui] Hotbar UI not found.")
+		return
 	end
+
+	local function updateUnlockedSlots(currentLevel: number)
+		local level15 = hotBar:FindFirstChild("Level15")
+		local level9 = hotBar:FindFirstChild("Level9")
+		local slot5 = hotBar:FindFirstChild("5")
+		local slot6 = hotBar:FindFirstChild("6")
+
+		if currentLevel >= 15 then
+			if level15 then level15.Visible = false end
+			if level9 then level9.Visible = false end
+			if slot5 then slot5.Visible = true end
+			if slot6 then slot6.Visible = true end
+		elseif currentLevel >= 10 then
+			if level15 then level15.Visible = true end
+			if level9 then level9.Visible = false end
+			if slot5 then slot5.Visible = true end
+			if slot6 then slot6.Visible = false end
+		else
+			if level15 then level15.Visible = true end
+			if level9 then level9.Visible = true end
+			if slot5 then slot5.Visible = false end
+			if slot6 then slot6.Visible = false end
+		end
+	end
+
+	updateUnlockedSlots(level.Value)
+	level:GetPropertyChangedSignal("Value"):Connect(function()
+		updateUnlockedSlots(level.Value)
+	end)
 
 	for _, slot in ipairs(inventoryFolder:GetChildren()) do
 		updateHotbarSlot(slot, hotBar, towerData)
@@ -607,11 +686,10 @@ end
 
 local function promptTutorial(): ()
 	local userData = getUserData()
-	local completedTutorial = userData:FindFirstChild("CompletedTutorial")
 	local tutorialGui = mainGui:WaitForChild("Frames"):WaitForChild("Tutorial")
-	local yesButton = tutorialGui:WaitForChild("Yes")
-	local noButton = tutorialGui:WaitForChild("No")
-
+	local TutorialBG = tutorialGui:WaitForChild("TutorialBG")
+	local yesButton = TutorialBG:WaitForChild("Yes")
+	local noButton = TutorialBG:WaitForChild("No")
 	local tutorialData = {
 		["Difficulty"] = getSavedDifficulty(),
 		["Gamemode"] = "Survival",
@@ -629,7 +707,7 @@ local function promptTutorial(): ()
 		remotes.Game.SkipTutorial:FireServer()
 	end)
 
-	if completedTutorial.Value == true then
+	if hasCompletedTutorial(userData) then
 		return
 	end
 
@@ -747,16 +825,29 @@ local function resolveLevelProgressUi()
 	-- New UI (preferred): TD.LevelFR
 	local levelFrame = mainGui:FindFirstChild("LevelFR")
 	if levelFrame then
-		local levelLabel = levelFrame:FindFirstChild("GameModeTX") or levelFrame:FindFirstChild("Level")
+		local levelLabel = levelFrame:FindFirstChild("GameLevelBG")
+			or levelFrame:FindFirstChild("GameLevelTX")
+			or levelFrame:FindFirstChild("Level")
 		if not levelLabel then
-			levelLabel = levelFrame:FindFirstChild("GameModeTX", true) or levelFrame:FindFirstChild("Level", true)
+			levelLabel = levelFrame:FindFirstChild("GameLevelBG", true)
+				or levelFrame:FindFirstChild("GameLevelTX", true)
+				or levelFrame:FindFirstChild("Level", true)
+		end
+
+		local xpLabel = levelFrame:FindFirstChild("GameModeTX")
+			or levelFrame:FindFirstChild("XP")
+		if not xpLabel then
+			xpLabel = levelFrame:FindFirstChild("GameModeTX", true)
+				or levelFrame:FindFirstChild("XP", true)
 		end
 
 		local outerBar = levelFrame:FindFirstChild("BarBG")
 		local levelBar = nil
 
 		if outerBar then
-			levelBar = outerBar:FindFirstChild("Bar")
+			levelBar = outerBar:FindFirstChild("BarMoveBG")
+				or outerBar:FindFirstChild("Bar")
+				or outerBar:FindFirstChild("BarMoveBG", true)
 			if not levelBar then
 				local nestedBarBG = outerBar:FindFirstChild("BarBG")
 				if nestedBarBG and nestedBarBG ~= outerBar then
@@ -765,8 +856,8 @@ local function resolveLevelProgressUi()
 			end
 		end
 
-		if levelLabel and levelBar then
-			return levelLabel, levelBar
+		if levelLabel and xpLabel and levelBar then
+			return levelLabel, xpLabel, levelBar
 		end
 	end
 
@@ -775,14 +866,15 @@ local function resolveLevelProgressUi()
 	local oldContainer = bottom and bottom:FindFirstChild("ProgressBar")
 	if oldContainer then
 		local levelLabel = oldContainer:FindFirstChild("Level")
+		local xpLabel = oldContainer:FindFirstChild("XP") or levelLabel
 		local levelBar = oldContainer:FindFirstChild("Bar")
-		if levelLabel and levelBar then
-			return levelLabel, levelBar
+		if levelLabel and xpLabel and levelBar then
+			return levelLabel, xpLabel, levelBar
 		end
 	end
 
 	warn("[PlayerGui] Level progress UI not found (LevelFR or Bottom.ProgressBar).")
-	return nil, nil
+	return nil, nil, nil
 end
 
 local function handleLevels(): ()
@@ -792,8 +884,8 @@ local function handleLevels(): ()
 	local exp = userData:WaitForChild("EXP")
 	local level = userData:WaitForChild("Level")
 
-	local levelLabel, levelBar = resolveLevelProgressUi()
-	if not levelLabel or not levelBar then
+	local levelLabel, xpLabel, levelBar = resolveLevelProgressUi()
+	if not levelLabel or not xpLabel or not levelBar then
 		return
 	end
 
@@ -801,9 +893,18 @@ local function handleLevels(): ()
 		local currentLevel = level.Value
 		local currentXP = exp.Value
 		local maxXP = levelData[tostring(currentLevel)] and levelData[tostring(currentLevel)].MaxXP or 100
-		levelLabel.Text = string.format("Level %d [%d/%d]", currentLevel, currentXP, maxXP)
+		local missingXP = math.max(maxXP - currentXP, 0)
+		local sharedLabel = (levelLabel == xpLabel)
+
+		if sharedLabel then
+			levelLabel.Text = string.format("Level %d [%d/%d]", currentLevel, currentXP, maxXP)
+		else
+			levelLabel.Text = string.format("Level %d", currentLevel)
+			xpLabel.Text = string.format("%d/%d (faltam %d)", currentXP, maxXP, missingXP)
+		end
+
 		levelBar.Size = UDim2.new(
-			math.clamp(currentXP / maxXP, 0, 1),
+			math.clamp(currentXP / math.max(maxXP, 1), 0, 1),
 			0,
 			levelBar.Size.Y.Scale,
 			levelBar.Size.Y.Offset
@@ -871,79 +972,174 @@ local function handleSettings(): ()
 	local userData = getUserData()
 	local settings = userData:WaitForChild("Settings", 60)
 	local settingsFrame = mainGui:WaitForChild("Frames"):WaitForChild("Settings")
-	local settingsScroll = settingsFrame:WaitForChild("ScrollingFrame")
+	local settingsList = settingsFrame:FindFirstChild("ListScrollingFrame")
+		or settingsFrame:FindFirstChild("ScrollingFrame")
+		or settingsFrame:WaitForChild("ListScrollingFrame", 5)
+		or settingsFrame:WaitForChild("ScrollingFrame", 5)
 
-	for _, toggleButton in ipairs(settingsScroll:GetDescendants()) do
-		if toggleButton:IsA("ImageButton") and toggleButton.Name == "OnOff" then
-			local dataName = toggleButton.Parent.Name
-			local targetData = settings:FindFirstChild(dataName)
-			local mainText = toggleButton:FindFirstChild("MainText")
-			local uiStroke = toggleButton:FindFirstChild("UIStroke")
+	if not settingsList then
+		warn("[PlayerGui] Settings list not found.")
+		return
+	end
 
-			local function setOff(): ()
-				toggleButton.ImageColor3 = Color3.fromRGB(255, 42, 0)
-				uiStroke.Color = Color3.fromRGB(107, 16, 0)
-				mainText.UIStroke.Color = Color3.fromRGB(107, 16, 0)
-				mainText.Text = "Off"
+	local function setMusicState(enabled: boolean): ()
+		local soundService = game:FindFirstChild("SoundService")
+		if not soundService then return end
 
-				if dataName == "MusicEnabled" then
-					game.SoundService.SFX.BackgroundMusic.Lobby.Volume = 0
-				end
-			end
+		local sfx = soundService:FindFirstChild("SFX")
+		if not sfx then return end
 
-			local function setOn(): ()
-				toggleButton.ImageColor3 = Color3.fromRGB(89, 255, 0)
-				uiStroke.Color = Color3.fromRGB(0, 103, 15)
-				mainText.UIStroke.Color = Color3.fromRGB(0, 103, 15)
-				mainText.Text = "On"
+		local backgroundMusic = sfx:FindFirstChild("BackgroundMusic")
+		if not backgroundMusic then return end
 
-				if dataName == "MusicEnabled" then
-					game.SoundService.SFX.BackgroundMusic.Lobby.Volume = 0.5
-				end
-			end
-
-			if targetData.Value == true then
-				setOn()
-			else
-				setOff()
-			end
-
-			toggleButton.Activated:Connect(function()
-				if mainText.Text == "On" then
-					setOff()
-					remotes.Settings.changeSetting:FireServer(toggleButton.Parent.Name, false)
-				else
-					setOn()
-					remotes.Settings.changeSetting:FireServer(toggleButton.Parent.Name, true)
-				end
-			end)
+		local lobby = backgroundMusic:FindFirstChild("Lobby")
+		if lobby and lobby:IsA("Sound") then
+			lobby.Volume = enabled and 0.5 or 0
 		end
+	end
+
+	for _, settingItem in ipairs(settingsList:GetChildren()) do
+		if not settingItem:IsA("GuiObject") then
+			continue
+		end
+
+		local dataName = settingItem.Name
+		local targetData = settings:FindFirstChild(dataName)
+		local onButton = settingItem:FindFirstChild("ONBT")
+		local offButton = settingItem:FindFirstChild("OFFBT")
+
+		if not targetData or not targetData:IsA("BoolValue") then
+			continue
+		end
+
+		if not onButton or not offButton then
+			continue
+		end
+
+		if not onButton:IsA("GuiButton") or not offButton:IsA("GuiButton") then
+			continue
+		end
+
+		local function setVisualState(enabled: boolean): ()
+			onButton.Visible = enabled
+			offButton.Visible = not enabled
+
+			if dataName == "MusicEnabled" then
+				setMusicState(enabled)
+			end
+		end
+
+		setVisualState(targetData.Value == true)
+
+		targetData:GetPropertyChangedSignal("Value"):Connect(function()
+			setVisualState(targetData.Value == true)
+		end)
+
+		onButton.Activated:Connect(function()
+			setVisualState(false)
+			remotes.Settings.changeSetting:FireServer(dataName, false)
+		end)
+
+		offButton.Activated:Connect(function()
+			setVisualState(true)
+			remotes.Settings.changeSetting:FireServer(dataName, true)
+		end)
 	end
 end
 
 local function handleDailyRewards(): ()
 	local dailyFrame = mainGui:WaitForChild("Frames"):WaitForChild("Daily")
-	local streakText = dailyFrame:WaitForChild("Streak")
-	local claimButton = dailyFrame:WaitForChild("Claim")
 	local userData = getUserData()
 	local completedTutorial = userData:FindFirstChild("CompletedTutorial")
 	local onboarding = userData:FindFirstChild("Onboarding")
 	local onboardingCompleted = onboarding and onboarding:FindFirstChild("Completed")
 	local onboardingStage = onboarding and onboarding:FindFirstChild("Stage")
 	local lastBlockedNotification = 0
+	local dailyBg = dailyFrame:FindFirstChild("DailyRewardsBG") or dailyFrame
+	local rewardsFr = dailyBg:FindFirstChild("RewardsFR")
+	local rewardsFr2 = dailyBg:FindFirstChild("RewardsFR2")
+	local streakText = dailyBg:FindFirstChild("Streak", true) or dailyFrame:FindFirstChild("Streak", true)
+	local claimButton = dailyBg:FindFirstChild("ClaimBT", true) or dailyFrame:FindFirstChild("Claim", true)
+	local claimAllButton = dailyBg:FindFirstChild("ClaimAllBT", true) or dailyFrame:FindFirstChild("ClaimAll", true)
+	local closeButton = dailyFrame:FindFirstChild("Close", true)
+	local lastClaimValue = userData:FindFirstChild("LastClaim")
+	local streakValue = userData:FindFirstChild("Streak")
+	local claimDebounce = false
 
-	local days = {
-		[1] = dailyFrame:FindFirstChild("Day1"),
-		[2] = dailyFrame:FindFirstChild("Day2"),
-		[3] = dailyFrame:FindFirstChild("Day3"),
-		[4] = dailyFrame:FindFirstChild("Day4"),
-		[5] = dailyFrame:FindFirstChild("Day5"),
-		[6] = dailyFrame:FindFirstChild("Day6"),
-		[7] = dailyFrame:FindFirstChild("Day7"),
-	}
+	local dayFrames = {}
+	for i = 1, 7 do
+		dayFrames[i] = (rewardsFr and rewardsFr:FindFirstChild("Day" .. i))
+			or (rewardsFr2 and rewardsFr2:FindFirstChild("Day" .. i))
+			or dailyBg:FindFirstChild("Day" .. i, true)
+			or dailyFrame:FindFirstChild("Day" .. i, true)
+	end
 
 	local function canAccessDaily(): boolean
 		return hasCompletedTutorial(userData)
+	end
+
+	local function getCurrentDailyDay(): number
+		if game:GetService("RunService"):IsStudio() then
+			return math.floor(os.time() / 60)
+		end
+
+		return math.floor(os.time() / 86400)
+	end
+
+	local function getClaimState()
+		local state = {
+			ClaimableCount = 0,
+			ClaimedCount = 0,
+			ClaimedDays = {},
+			ClaimableDays = {},
+		}
+
+		if not lastClaimValue or not streakValue then
+			return state
+		end
+
+		local today = getCurrentDailyDay()
+		local daysSince = today - lastClaimValue.Value
+		local effectiveStreak = streakValue.Value
+
+		if daysSince > 3 then
+			effectiveStreak = 0
+			daysSince = 1
+		end
+
+		if effectiveStreak > 0 then
+			for i = 1, math.clamp(effectiveStreak, 0, 7) do
+				table.insert(state.ClaimedDays, i)
+			end
+		elseif lastClaimValue.Value > 0 and daysSince < 1 then
+			-- When the player finishes Day 7, the server resets streak back to 0.
+			-- We still want every day in the current cycle to show as claimed until the next reset window.
+			for i = 1, 7 do
+				table.insert(state.ClaimedDays, i)
+			end
+		end
+
+		state.ClaimedCount = #state.ClaimedDays
+
+		if daysSince < 1 then
+			return state
+		end
+
+		state.ClaimableCount = math.clamp(daysSince, 1, 3)
+
+		local currentStreak = effectiveStreak
+		for _ = 1, state.ClaimableCount do
+			currentStreak += 1
+
+			local dayIndex = ((currentStreak - 1) % 7) + 1
+			table.insert(state.ClaimableDays, dayIndex)
+
+			if dayIndex == 7 then
+				currentStreak = 0
+			end
+		end
+
+		return state
 	end
 
 	local function notifyTutorialLock()
@@ -956,29 +1152,63 @@ local function handleDailyRewards(): ()
 		sendNotification("Complete the tutorial to unlock Daily Rewards.", "Error")
 	end
 
-	local function updateStreak(): ()
-		local streakData = userData:WaitForChild("Streak")
-		streakText.Text = streakData.Value
+	local function setButtonEnabled(button: GuiButton?, enabled: boolean)
+		if not button then
+			return
+		end
 
-		for i = 1, #days do
-			if days[i] and days[i]:FindFirstChild("Claimed") then
-				days[i].Claimed.Visible = i <= streakData.Value
+		button.Active = enabled
+		button.AutoButtonColor = enabled
+
+		if button:IsA("GuiObject") then
+			button.Visible = true
+		end
+	end
+
+	local function updateDailyUi(): ()
+		local claimState = getClaimState()
+
+		if streakText and (streakText:IsA("TextLabel") or streakText:IsA("TextButton") or streakText:IsA("TextBox")) then
+			streakText.Text = tostring(streakValue and streakValue.Value or 0)
+		end
+
+		for i = 1, #dayFrames do
+			local dayFrame = dayFrames[i]
+			if dayFrame then
+				local claimed = dayFrame:FindFirstChild("Claimed", true)
+				local canClaim = dayFrame:FindFirstChild("CanClaim", true)
+					or dayFrame:FindFirstChild("Available", true)
+					or dayFrame:FindFirstChild("Current", true)
+				local isClaimed = table.find(claimState.ClaimedDays, i) ~= nil
+				local isClaimable = table.find(claimState.ClaimableDays, i) ~= nil
+
+				if claimed and claimed:IsA("GuiObject") then
+					claimed.Visible = isClaimed
+				end
+
+				if canClaim and canClaim:IsA("GuiObject") then
+					canClaim.Visible = (not isClaimed) and isClaimable
+				end
 			end
 		end
+
+		local unlocked = canAccessDaily()
+		setButtonEnabled(claimButton, unlocked and claimState.ClaimableCount > 0)
+		setButtonEnabled(claimAllButton, unlocked and claimState.ClaimableCount > 0)
 	end
 
 	local function applyDailyAccessState()
 		local unlocked = canAccessDaily()
-
-		claimButton.Active = unlocked
-		claimButton.AutoButtonColor = unlocked
 
 		if not unlocked and dailyFrame.Visible then
 			dailyFrame.Visible = false
 		end
 
 		if unlocked then
-			updateStreak()
+			updateDailyUi()
+		else
+			setButtonEnabled(claimButton, false)
+			setButtonEnabled(claimAllButton, false)
 		end
 	end
 
@@ -986,6 +1216,8 @@ local function handleDailyRewards(): ()
 		if dailyFrame.Visible and not canAccessDaily() then
 			dailyFrame.Visible = false
 			notifyTutorialLock()
+		elseif dailyFrame.Visible then
+			updateDailyUi()
 		end
 	end)
 
@@ -1001,77 +1233,76 @@ local function handleDailyRewards(): ()
 		onboardingStage:GetPropertyChangedSignal("Value"):Connect(applyDailyAccessState)
 	end
 
-	claimButton.Activated:Connect(function()
-		if not canAccessDaily() then
-			notifyTutorialLock()
-			return
-		end
+	if lastClaimValue then
+		lastClaimValue:GetPropertyChangedSignal("Value"):Connect(updateDailyUi)
+	end
 
-		remotes.Daily.claimReward:FireServer()
-		task.spawn(function()
-			task.wait(0.5)
-			updateStreak()
+	if streakValue then
+		streakValue:GetPropertyChangedSignal("Value"):Connect(updateDailyUi)
+	end
+
+	if claimButton then
+		claimButton.Activated:Connect(function()
+			if claimDebounce then
+				return
+			end
+
+			if not canAccessDaily() then
+				notifyTutorialLock()
+				return
+			end
+
+			claimDebounce = true
+			remotes.Daily.claimReward:FireServer(false)
+			task.delay(0.4, function()
+				claimDebounce = false
+				updateDailyUi()
+			end)
 		end)
-	end)
+	end
+
+	if claimAllButton then
+		claimAllButton.Activated:Connect(function()
+			if claimDebounce then
+				return
+			end
+
+			if not canAccessDaily() then
+				notifyTutorialLock()
+				return
+			end
+
+			claimDebounce = true
+			remotes.Daily.claimReward:FireServer(true)
+			task.delay(0.4, function()
+				claimDebounce = false
+				updateDailyUi()
+			end)
+		end)
+	end
+
+	if closeButton and not closeButton:GetAttribute("FrameName") then
+		closeButton.Activated:Connect(function()
+			if dailyFrame.Visible then
+				dailyFrame.Visible = false
+			end
+		end)
+	end
 
 	applyDailyAccessState()
 end
 
 local function handleBox(): ()
+	local goldCrate = workspace:FindFirstChild("Crate")
+	local uiPart = goldCrate:FindFirstChild("UIPart")
+	local billboard = uiPart:FindFirstChild("BillboardGui")
+	local timerLabel = billboard:FindFirstChild("Timer")
 	local userData = getUserData()
-	local timersFolder = userData:FindFirstChild("LobbyCrateTimers") or userData:WaitForChild("LobbyCrateTimers", 10)
-	local boundCrates = {}
-	local watchedFolders = {}
+	local remainingTimer = userData:FindFirstChild("RemainingTimer")
 
-	local function isNumericValue(valueObject: Instance?): boolean
-		return valueObject ~= nil and (valueObject:IsA("IntValue") or valueObject:IsA("NumberValue"))
-	end
-
-	local function getCrateId(crateModel: Instance)
-		return LobbyCrateData.ResolveCrateId(crateModel.Name, crateModel:GetAttribute("CrateId"))
-	end
-
-	local function getTimerValue(crateId: string)
-		local activeTimersFolder = timersFolder or userData:FindFirstChild("LobbyCrateTimers")
-		if activeTimersFolder then
-			local timerValue = activeTimersFolder:FindFirstChild(crateId)
-			if isNumericValue(timerValue) then
-				return timerValue
-			end
-		end
-
-		if crateId == LobbyCrateData.LegacyCrateId then
-			local legacyTimer = userData:FindFirstChild("RemainingTimer")
-			if isNumericValue(legacyTimer) then
-				return legacyTimer
-			end
-		end
-
-		return nil
-	end
-
-	local function getTimerLabel(crateModel: Instance)
-		local uiPart = crateModel:FindFirstChild("UIPart", true)
-		if not uiPart then
-			return nil
-		end
-
-		local billboard = uiPart:FindFirstChild("BillboardGui")
-		if not billboard then
-			return nil
-		end
-
-		local timerLabel = billboard:FindFirstChild("Timer")
-		if timerLabel and timerLabel:IsA("TextLabel") then
-			return timerLabel
-		end
-
-		return nil
-	end
-
-	local function updateLabel(timerLabel: TextLabel, crateId: string, value: number): ()
+	local function updateLabel(value: number): ()
 		if value <= 0 then
-			timerLabel.Text = LobbyCrateData.GetReadyText(crateId)
+			timerLabel.Text = "CLAIM!"
 			return
 		end
 
@@ -1086,59 +1317,8 @@ local function handleBox(): ()
 		end
 	end
 
-	local function bindCrate(crateModel: Instance)
-		if boundCrates[crateModel] then
-			return
-		end
-
-		local crateId = getCrateId(crateModel)
-		local timerLabel = crateId and getTimerLabel(crateModel)
-		local timerValue = crateId and getTimerValue(crateId)
-		if not crateId or not timerLabel or not timerValue then
-			return
-		end
-
-		boundCrates[crateModel] = true
-		updateLabel(timerLabel, crateId, timerValue.Value)
-		timerValue.Changed:Connect(function(value)
-			updateLabel(timerLabel, crateId, value)
-		end)
-	end
-
-	local function watchFolder(folder: Instance?)
-		if not folder or watchedFolders[folder] then
-			return
-		end
-
-		watchedFolders[folder] = true
-		for _, child in ipairs(folder:GetChildren()) do
-			bindCrate(child)
-		end
-
-		folder.ChildAdded:Connect(function(child)
-			task.defer(bindCrate, child)
-		end)
-	end
-
-	for _, folderName in ipairs(LobbyCrateData.FolderNames) do
-		watchFolder(workspace:FindFirstChild(folderName))
-	end
-
-	local legacyCrate = workspace:FindFirstChild(LobbyCrateData.LegacyModelName)
-	if legacyCrate then
-		bindCrate(legacyCrate)
-	end
-
-	workspace.ChildAdded:Connect(function(child)
-		if child.Name == LobbyCrateData.LegacyModelName then
-			task.defer(bindCrate, child)
-			return
-		end
-
-		if table.find(LobbyCrateData.FolderNames, child.Name) then
-			task.defer(watchFolder, child)
-		end
-	end)
+	updateLabel(remainingTimer.Value)
+	remainingTimer.Changed:Connect(updateLabel)
 end
 
 local function handleAFK(): ()

@@ -1,126 +1,152 @@
--- // services
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-
--- // variables
 
 local Remotes = ReplicatedStorage.Remotes
 local QuestRemotes = Remotes.Quests
 local QuestData = require(ReplicatedStorage.Modules.StoredData.QuestsData)
 
--- // functions
+local function getQuest(player: Player, categoryName: string?, questName: string)
+	local userData = player:FindFirstChild("UserData")
+	if not userData then
+		return nil
+	end
 
-local function getQuest(Player : Player, QuestName : string)
-	
-	local UserData = Player:FindFirstChild("UserData")
-	
-	for key, Data in ipairs(UserData.Quests:GetDescendants()) do
-		if Data.Name == QuestName then
-			return Data
+	local questsFolder = userData:FindFirstChild("Quests")
+	if not questsFolder then
+		return nil
+	end
+
+	if categoryName and categoryName ~= "" then
+		local categoryFolder = questsFolder:FindFirstChild(categoryName)
+		local activeFolder = categoryFolder and categoryFolder:FindFirstChild("Active")
+		local questFolder = activeFolder and activeFolder:FindFirstChild(questName)
+
+		if questFolder and questFolder:IsA("Folder") then
+			return questFolder
 		end
 	end
-	
-	return false
-	
-end
 
-local function getQuestDataFromConfig(Category, QuestName)
-	local CategoryData = QuestData[Category]
-	if not CategoryData then return nil end
-
-	for _, Data in ipairs(CategoryData) do
-		if Data.Name == QuestName then
-			return Data
+	for _, data in ipairs(questsFolder:GetDescendants()) do
+		if data:IsA("Folder") and data.Name == questName and data:FindFirstChild("Progress") then
+			return data
 		end
 	end
 
 	return nil
 end
 
-local function redeemQuest(Player : Player, Quest : Instance)
+local function getQuestDataFromConfig(categoryName, questName)
+	local categoryData = QuestData[categoryName]
+	if not categoryData then
+		return nil
+	end
 
-	print(Player.Name, "is redeeming", Quest.Name)
+	for _, data in ipairs(categoryData) do
+		if data.Name == questName then
+			return data
+		end
+	end
 
-	local UserData = Player:FindFirstChild("UserData")
-	if not UserData then return end
+	return nil
+end
 
-	local CompletedValue = Quest:FindFirstChild("Completed")
-	local Category = Quest.Parent.Parent.Name
-	local QuestConfig = getQuestDataFromConfig(Category, Quest.Name)
-
-	if CompletedValue.Value == true then
-		Remotes.Notification.SendNotification:FireClient(Player, "Already claimed this quest.", "Error")
+local function redeemQuest(player: Player, quest: Instance)
+	local userData = player:FindFirstChild("UserData")
+	if not userData then
 		return
 	end
 
-	if not QuestConfig then return end
+	local completedValue = quest:FindFirstChild("Completed")
+	local category = quest.Parent and quest.Parent.Parent and quest.Parent.Parent.Name
+	local questConfig = category and getQuestDataFromConfig(category, quest.Name) or nil
 
-	local EXPValue = UserData:FindFirstChild("EXP")
-	if EXPValue then
-		EXPValue.Value += QuestConfig.XP
+	if not completedValue or not completedValue:IsA("BoolValue") then
+		return
 	end
 
-	local rewardText = ""
+	if completedValue.Value == true then
+		Remotes.Notification.SendNotification:FireClient(player, "Already claimed this quest.", "Error")
+		return
+	end
 
-	for rewardType, amount in pairs(QuestConfig.Rewards) do
-		rewardText ..= rewardType .. ": " .. tostring(amount) .. " "
+	if not questConfig then
+		return
+	end
 
+	local expValue = userData:FindFirstChild("EXP")
+	if expValue then
+		expValue.Value += questConfig.XP
+	end
+
+	local rewardParts = {}
+
+	for rewardType, amount in pairs(questConfig.Rewards or {}) do
 		if rewardType == "Cash" or rewardType == "Money" then
-			local MoneyValue = UserData:FindFirstChild("Money")
-			if MoneyValue then
-				MoneyValue.Value += amount
+			local moneyValue = userData:FindFirstChild("Money")
+			if moneyValue then
+				moneyValue.Value += amount
+			end
+
+			table.insert(rewardParts, "$" .. tostring(amount))
+		else
+			table.insert(rewardParts, tostring(amount) .. " " .. tostring(rewardType))
+
+			for _, data in ipairs(userData:GetDescendants()) do
+				if data:IsA("ValueBase") and data.Name == rewardType and type(data.Value) == "number" then
+					data.Value += amount
+				end
 			end
 		end
 	end
 
-	CompletedValue.Value = true
+	completedValue.Value = true
 
-	Remotes.Notification.SendNotification:FireClient(Player, "Claimed " .. QuestConfig.XP .. " EXP!", "Success")
-	Remotes.Notification.SendNotification:FireClient(Player, "Claimed " .. rewardText, "Success")
+	Remotes.Notification.SendNotification:FireClient(player, "Claimed " .. tostring(questConfig.XP) .. " EXP!", "Success")
+	if #rewardParts > 0 then
+		Remotes.Notification.SendNotification:FireClient(player, "Claimed " .. table.concat(rewardParts, ", "), "Success")
+	end
 end
 
-local function checkProgress(Player: Player, Quest: Instance)
-	local ProgressValue = Quest:FindFirstChild("Progress", true)
-	if not ProgressValue then
-		warn("No progress value found.")
+local function checkProgress(player: Player, quest: Instance)
+	local progressValue = quest:FindFirstChild("Progress", true)
+	local goalAmount = quest:FindFirstChild("Target", true)
+
+	if not progressValue or not goalAmount then
 		return false
 	end
 
-	local GoalAmount = Quest:FindFirstChild("Target", true)
-	if not GoalAmount then
-		warn("No goal value found.")
-		return false
-	end
-
-	if ProgressValue.Value >= GoalAmount.Value then
-		print("Completed!")
-		redeemQuest(Player, Quest)
+	if progressValue.Value >= goalAmount.Value then
+		redeemQuest(player, quest)
 		return true
-	else
-		return false
 	end
+
+	return false
 end
 
--- // code
+QuestRemotes.claimQuest.OnServerEvent:Connect(function(player: Player, categoryOrQuestName, maybeQuestName)
+	local categoryName = nil
+	local questName = nil
 
-QuestRemotes.claimQuest.OnServerEvent:Connect(function(Player : Player, QuestName : string)
-	
-	local FoundQuest = getQuest(Player, QuestName)
-	if FoundQuest then
-		
-		local isCompleted = checkProgress(Player, FoundQuest)
-		
-		if isCompleted then
-			print("Can claim reward")
-		else
-			warn("Cannot claim")
-		end
-		
+	if type(maybeQuestName) == "string" then
+		categoryName = categoryOrQuestName
+		questName = maybeQuestName
 	else
-		warn("Cannot find "..QuestName)
+		questName = categoryOrQuestName
 	end
-	
+
+	if type(questName) ~= "string" or questName == "" then
+		return
+	end
+
+	local foundQuest = getQuest(player, categoryName, questName)
+	if not foundQuest then
+		warn("Cannot find quest " .. questName)
+		return
+	end
+
+	local isCompleted = checkProgress(player, foundQuest)
+	if not isCompleted then
+		warn("Cannot claim")
+	end
 end)
 
 return {}

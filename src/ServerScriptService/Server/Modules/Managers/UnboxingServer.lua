@@ -10,6 +10,18 @@ local CrateData = require(StoredData:WaitForChild("CrateData"))
 
 local ActiveUnboxes = {}
 
+local function GetBannerInfo(BoxType)
+	if type(BoxType) ~= "string" then
+		return nil, nil
+	end
+
+	if type(CrateData.GetBanner) == "function" then
+		return CrateData.GetBanner(BoxType, os.time())
+	end
+
+	return CrateData.Banners[BoxType], BoxType
+end
+
 local function GenerateHash(length)
 	length = length or 16
 	local charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -21,8 +33,22 @@ local function GenerateHash(length)
 	return hash
 end
 
-local function GetRandomUnitOfRarity(boxType, targetRarity)
-	local candidates = CrateData.GetUnitsForBanner(boxType, targetRarity)
+local function GetRandomUnitOfRarity(targetRarity, BannerInfo)
+	local candidates = {}
+	local pool = BannerInfo and BannerInfo.UnitPoolByRarity and BannerInfo.UnitPoolByRarity[targetRarity]
+
+	if type(pool) == "table" then
+		for _, unitName in ipairs(pool) do
+			table.insert(candidates, unitName)
+		end
+	else
+		for unitName, tier in pairs(CrateData.UnitTiers) do
+			if tier == targetRarity then
+				table.insert(candidates, unitName)
+			end
+		end
+	end
+
 	if #candidates > 0 then
 		return candidates[math.random(1, #candidates)]
 	end
@@ -126,7 +152,7 @@ end
 Remotes.Game.Unbox.OnServerEvent:Connect(function(Player, BoxType)
 	if ActiveUnboxes[Player] then return end
 
-	local BannerInfo = CrateData.GetBanner(BoxType)
+	local BannerInfo = GetBannerInfo(BoxType)
 	if not BannerInfo then return end
 
 	local UserData = Player:FindFirstChild("UserData")
@@ -182,10 +208,10 @@ Remotes.Game.Unbox.OnServerEvent:Connect(function(Player, BoxType)
 		end
 	end
 
-	local SelectedUnit = GetRandomUnitOfRarity(BoxType, chosenRarity)
+	local SelectedUnit = GetRandomUnitOfRarity(chosenRarity, BannerInfo)
 
 	if not SelectedUnit then
-		SelectedUnit = "Scout" 
+		SelectedUnit = "Suzette"
 		warn("No unit found for rarity: " .. chosenRarity)
 	end
 
@@ -200,12 +226,14 @@ Remotes.Game.Unbox.OnServerEvent:Connect(function(Player, BoxType)
 end)
 
 Remotes.Game.PurchaseBox.OnServerEvent:Connect(function(Player, BoxType)
-	local BannerInfo = CrateData.GetBanner(BoxType)
+	local BannerInfo = GetBannerInfo(BoxType)
 	if not BannerInfo then return end
 
 	local UserData = Player:FindFirstChild("UserData")
+	if not UserData then return end
+
 	local Crates = UserData:FindFirstChild("Crates")
-	if not UserData or not Crates then return end
+	if not Crates then return end
 
 	local CurrencyName = BannerInfo.Currency or "Coins"
 	local Price = BannerInfo.Price

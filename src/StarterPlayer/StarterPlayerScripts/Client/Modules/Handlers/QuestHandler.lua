@@ -1,182 +1,300 @@
 local Handler = {}
 
---services
-local Players = game.Players
+local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game.ReplicatedStorage
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
 
---player references
 local Player = Players.LocalPlayer
 local PlayerGui = Player.PlayerGui
-
---ui references
 local MainGui = PlayerGui:WaitForChild("TD")
 
-
---state
-local SelectedCategory = "Daily"
-
---data references
 local UserData = Player:WaitForChild("UserData")
 local QuestsFolder = UserData:WaitForChild("Quests", 5)
 
---ui elements
-local Frames = MainGui:WaitForChild("Frames")
-local QuestsFrame = Frames:WaitForChild("Quests")
-local ButtonHolder = QuestsFrame:WaitForChild("Holder")
+local QuestData = require(ReplicatedStorage.Modules.StoredData.QuestsData)
+local QuestRemotes = ReplicatedStorage.Remotes:WaitForChild("Quests")
 
---category buttons
-local DailyButton = ButtonHolder:WaitForChild("Daily")
-local WeeklyButton = ButtonHolder:WaitForChild("Weekly")
-local MonthlyButton = ButtonHolder:WaitForChild("Monthly")
+local SelectedCategory = "Daily"
 
---quest list
-local ScrollingFrame = QuestsFrame:WaitForChild("ScrollingFrame")
-local Template = script:WaitForChild("Template")
+local function isTextObject(obj)
+	return obj and (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox"))
+end
 
---clears all quest entries from the list
+local function setText(obj, value)
+	if isTextObject(obj) then
+		obj.Text = tostring(value)
+	end
+end
+
+local function findByName(root, names, recursive, className)
+	if not root then
+		return nil
+	end
+
+	for _, name in ipairs(names) do
+		local found = root:FindFirstChild(name, recursive == true)
+		if found then
+			if not className or found:IsA(className) then
+				return found
+			end
+		end
+	end
+
+	return nil
+end
+
+local function resolveQuestUi()
+	local frames = MainGui:WaitForChild("Frames")
+	local questsFrame = frames:WaitForChild("Quests")
+	local questsBg = questsFrame:FindFirstChild("QuestsBG") or questsFrame
+	local listScrolling = questsBg:FindFirstChild("ListScrollingFrame")
+		or questsBg:FindFirstChild("ScrollingFrame")
+		or questsFrame:FindFirstChild("ListScrollingFrame", true)
+		or questsFrame:FindFirstChild("ScrollingFrame", true)
+	local template = listScrolling and listScrolling:FindFirstChild("Template")
+	local questTypeFr = questsBg:FindFirstChild("QuestTypeFR")
+		or questsFrame:FindFirstChild("QuestTypeFR", true)
+		or questsFrame:FindFirstChild("Holder", true)
+
+	return {
+		Frame = questsFrame,
+		ListScrolling = listScrolling,
+		Template = template,
+		DailyButton = questTypeFr and findByName(questTypeFr, { "Daily" }, false, "GuiButton") or nil,
+		WeeklyButton = questTypeFr and findByName(questTypeFr, { "Weekly" }, false, "GuiButton") or nil,
+		MonthlyButton = questTypeFr and findByName(questTypeFr, { "Monthly", "Montly" }, false, "GuiButton") or nil,
+		CloseButton = findByName(questsFrame, { "Close", "CloseBT", "CloseButtonBT" }, true, "GuiButton"),
+	}
+end
+
+local UI = resolveQuestUi()
+
+local function getQuestConfig(categoryName, questName)
+	local categoryData = QuestData[categoryName]
+	if not categoryData then
+		return nil
+	end
+
+	for _, quest in ipairs(categoryData) do
+		if quest.Name == questName then
+			return quest
+		end
+	end
+
+	return nil
+end
+
+local function formatRewardText(categoryName, questName)
+	local questConfig = getQuestConfig(categoryName, questName)
+	if not questConfig then
+		return ""
+	end
+
+	local rewardParts = {}
+
+	for rewardType, amount in pairs(questConfig.Rewards or {}) do
+		if rewardType == "Cash" or rewardType == "Money" then
+			table.insert(rewardParts, "$" .. tostring(amount))
+		else
+			table.insert(rewardParts, tostring(amount) .. " " .. tostring(rewardType))
+		end
+	end
+
+	if questConfig.XP and questConfig.XP > 0 then
+		table.insert(rewardParts, tostring(questConfig.XP) .. " XP")
+	end
+
+	return table.concat(rewardParts, " + ")
+end
+
 local function clearList()
-	for _, child in ipairs(ScrollingFrame:GetChildren()) do
-		if child:IsA("Frame") and child ~= Template then
-			child:Destroy()
+	if not UI.ListScrolling then
+		return
+	end
+
+	if UI.Template and UI.Template:IsA("GuiObject") then
+		UI.Template.Visible = false
+	end
+
+	for _, child in ipairs(UI.ListScrolling:GetChildren()) do
+		if child == UI.Template then
+			continue
+		end
+
+		if child:IsA("UIListLayout")
+			or child:IsA("UIGridLayout")
+			or child:IsA("UIPadding")
+			or child:IsA("UICorner")
+			or child:IsA("UIStroke")
+			or child:IsA("UIAspectRatioConstraint")
+			or child:IsA("UISizeConstraint")
+		then
+			continue
+		end
+
+		child:Destroy()
+	end
+end
+
+local function updateClaimButtonVisual(button, claimable, claimed)
+	if not button then
+		return
+	end
+
+	button.Visible = claimable and not claimed
+	button.Active = claimable and not claimed
+	button.AutoButtonColor = claimable and not claimed
+
+	local textLabel = findByName(button, { "MainText", "TextLabel", "TX", "ClaimTX" }, true)
+	if textLabel then
+		if claimed then
+			textLabel.Text = "Claimed!"
+		else
+			textLabel.Text = "Claim"
+		end
+	elseif button:IsA("TextButton") then
+		if claimed then
+			button.Text = "Claimed!"
+		else
+			button.Text = "Claim"
+		end
+	end
+
+	if button:IsA("ImageButton") then
+		if claimed then
+			button.ImageColor3 = Color3.fromRGB(125, 125, 125)
+		elseif claimable then
+			button.ImageColor3 = Color3.fromRGB(0, 255, 127)
+		else
+			button.ImageColor3 = Color3.fromRGB(255, 255, 255)
+		end
+	end
+
+	local buttonStroke = button:FindFirstChild("UIStroke")
+	if buttonStroke and buttonStroke:IsA("UIStroke") then
+		if claimed then
+			buttonStroke.Color = Color3.fromRGB(75, 75, 75)
+		elseif claimable then
+			buttonStroke.Color = Color3.fromRGB(0, 115, 56)
+		end
+	end
+
+	if textLabel then
+		local textStroke = textLabel:FindFirstChild("UIStroke")
+		if textStroke and textStroke:IsA("UIStroke") then
+			if claimed then
+				textStroke.Color = Color3.fromRGB(75, 75, 75)
+			elseif claimable then
+				textStroke.Color = Color3.fromRGB(0, 115, 56)
+			end
 		end
 	end
 end
 
---creates a quest entry in the list
-local function addQuestEntry(questFolder)
+local function addQuestEntry(questFolder, categoryName)
+	if not UI.Template or not UI.ListScrolling then
+		return
+	end
 
-	--clone template
-	local newEntry = Template:Clone()
+	local newEntry = UI.Template:Clone()
+	newEntry.Name = questFolder.Name
 	newEntry.Visible = true
-	newEntry.Parent = ScrollingFrame
+	newEntry.Parent = UI.ListScrolling
 
-	--get ui elements
-	local categoryLabel = newEntry:FindFirstChild("Status")
-	local nameLabel = newEntry:FindFirstChild("Title")
-	local descLabel = newEntry:FindFirstChild("Desc")
-	local progressBar = newEntry:FindFirstChild("ProgressBar")
-	local progressLabel = progressBar and progressBar:FindFirstChild("Level")
-	local progressBarFill = progressBar and progressBar:FindFirstChild("Bar")
-	local ClaimButton = newEntry:FindFirstChild("Claim")
+	local claimButton = findByName(newEntry, { "Claim" }, true, "GuiButton")
+	local questDescription = findByName(newEntry, { "QuestDescriptionTX", "QuestDescription", "DescriptionTX", "Desc" }, true)
+	local questName = findByName(newEntry, { "QuestNameTX", "QuestName", "Title", "NameTX" }, true)
+	local questProgress = findByName(newEntry, { "QuestProgress", "QuestProgressTX", "QuestProgresssTX", "ProgressTX" }, true)
+	local rewardBg = findByName(newEntry, { "RewardBG" }, true)
+	local rewardText = (rewardBg and findByName(rewardBg, { "RewardTX", "RewardsTX", "TX", "TextLabel" }, true))
+		or findByName(newEntry, { "RewardTX", "RewardsTX" }, true)
+	local barBg = findByName(newEntry, { "BarBG", "ProgressBar" }, true)
+	local greenBar = (barBg and findByName(barBg, { "GreenBarBG", "Bar", "Fill" }, true))
+		or findByName(newEntry, { "GreenBarBG" }, true)
 
-	--get quest data
-	local questName = questFolder.Name
 	local progressValue = questFolder:FindFirstChild("Progress")
 	local targetValue = questFolder:FindFirstChild("Target")
 	local completedValue = questFolder:FindFirstChild("Completed")
 	local descriptionValue = questFolder:FindFirstChild("Description")
 
-	--tag button for interaction system
-	ClaimButton:AddTag("Button")
+	setText(questName, questFolder.Name)
+	setText(questDescription, descriptionValue and descriptionValue.Value or "")
+	setText(rewardText, formatRewardText(categoryName, questFolder.Name))
 
-	--gets the category name by traversing up the folder hierarchy
-	local function getCategoryName(folder)
-		while folder.Parent do
-			if folder.Parent.Name == "Quests" then
-				return folder.Name
-			end
-			folder = folder.Parent
-		end
-		return "Unknown"
+	if barBg and barBg:IsA("GuiObject") then
+		barBg.ClipsDescendants = true
 	end
 
-	local categoryName = getCategoryName(questFolder)
-
-	--set category label and color
-	if categoryLabel then
-		categoryLabel.Text = categoryName .. " Quest"
-
-		if categoryName == "Daily" then
-			categoryLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
-		elseif categoryName == "Weekly" then
-			categoryLabel.TextColor3 = Color3.fromRGB(85, 255, 127)
-		elseif categoryName == "Monthly" then
-			categoryLabel.TextColor3 = Color3.fromRGB(255, 170, 0)
-		else
-			categoryLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-		end
+	if greenBar and greenBar:IsA("GuiObject") then
+		greenBar.AnchorPoint = Vector2.new(0, 0.5)
+		greenBar.Position = UDim2.new(0, 0, 0.5, 0)
 	end
 
-	--set quest name and description
-	if nameLabel then
-		nameLabel.Text = questName
+	if claimButton and not CollectionService:HasTag(claimButton, "Button") then
+		CollectionService:AddTag(claimButton, "Button")
 	end
 
-	if descLabel then
-		descLabel.Text = descriptionValue and descriptionValue.Value or ""
-	end
-
-	--updates the progress bar and labels
 	local function updateProgress()
-		if not progressLabel or not progressBarFill then return end
-
-		local progress = 0
-		local target = 1
-
-		--get current progress values
-		if progressValue and targetValue then
-			progress = progressValue.Value
-			target = math.max(targetValue.Value, 1)
-		end
-
-		--update claim button if quest is complete but not claimed
-		if progressValue.Value >= targetValue.Value then
-			if not ClaimButton then return end
-
-			ClaimButton.ImageColor3 = Color3.fromRGB(0, 255, 127)
-			ClaimButton.UIStroke.Color = Color3.fromRGB(0, 115, 56)
-			ClaimButton.MainText.UIStroke.Color = Color3.fromRGB(0, 115, 56)
-		end
-
+		local progress = progressValue and progressValue.Value or 0
+		local target = targetValue and math.max(targetValue.Value, 1) or 1
+		local claimed = completedValue and completedValue.Value or false
 		local percent = math.clamp(progress / target, 0, 1)
 
-		--update labels based on completion state
-		if completedValue and completedValue.Value then
-			ClaimButton.MainText.Text = "Claimed!"
-			progressLabel.Text = "Completed!"
-			progressLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-		else
-			progressLabel.Text = string.format("%s / %s", progress, target)
-			progressLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		if claimed then
+			percent = 1
 		end
 
-		--animate progress bar
-		local goalSize = UDim2.new(percent, 0, 1, 0)
+		setText(questProgress, string.format("%d%%", math.floor(percent * 100 + 0.5)))
 
-		TweenService:Create(
-			progressBarFill,
-			TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Size = goalSize }
-		):Play()
+		if greenBar then
+			greenBar.AnchorPoint = Vector2.new(0, 0.5)
+			greenBar.Position = UDim2.new(0, 0, 0.5, 0)
+
+			TweenService:Create(
+				greenBar,
+				TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{
+					Size = UDim2.new(percent, 0, greenBar.Size.Y.Scale, greenBar.Size.Y.Offset),
+				}
+			):Play()
+		end
+
+		updateClaimButtonVisual(claimButton, progress >= target, claimed)
 	end
 
-	--connect progress listeners
 	if progressValue then
 		progressValue:GetPropertyChangedSignal("Value"):Connect(updateProgress)
+	end
+
+	if targetValue then
+		targetValue:GetPropertyChangedSignal("Value"):Connect(updateProgress)
 	end
 
 	if completedValue then
 		completedValue:GetPropertyChangedSignal("Value"):Connect(updateProgress)
 	end
 
-	--initial update
 	updateProgress()
 
-	--claim button handler
-	ClaimButton.Activated:Connect(function()
-		ReplicatedStorage.Remotes.Quests.claimQuest:FireServer(questName)
-	end)
+	if claimButton then
+		claimButton.Activated:Connect(function()
+			QuestRemotes.claimQuest:FireServer(categoryName, questFolder.Name)
+		end)
+	end
 end
 
---recursively gathers all quest folders from a parent folder
 local function gatherAllQuestFolders(parent)
 	local quests = {}
+
+	if not parent then
+		return quests
+	end
 
 	for _, child in ipairs(parent:GetChildren()) do
 		if child:IsA("Folder") and child:FindFirstChild("Progress") then
 			table.insert(quests, child)
-		else
+		elseif child:IsA("Folder") then
 			for _, subQuest in ipairs(gatherAllQuestFolders(child)) do
 				table.insert(quests, subQuest)
 			end
@@ -186,31 +304,57 @@ local function gatherAllQuestFolders(parent)
 	return quests
 end
 
---refreshes the quest list for the current category
 local function refreshQuests()
 	clearList()
 
-	local categoryFolder = QuestsFolder:FindFirstChild(SelectedCategory)
-	if not categoryFolder then return end
+	local categoryFolder = QuestsFolder and QuestsFolder:FindFirstChild(SelectedCategory)
+	if not categoryFolder then
+		return
+	end
 
 	local activeFolder = categoryFolder:FindFirstChild("Active")
-	if not activeFolder then return end
+	if not activeFolder then
+		return
+	end
 
 	local quests = gatherAllQuestFolders(activeFolder)
+	table.sort(quests, function(a, b)
+		local aCompleted = a:FindFirstChild("Completed")
+		local bCompleted = b:FindFirstChild("Completed")
+
+		if aCompleted and bCompleted and aCompleted.Value ~= bCompleted.Value then
+			return not aCompleted.Value
+		end
+
+		return a.Name < b.Name
+	end)
 
 	for _, questFolder in ipairs(quests) do
-		addQuestEntry(questFolder)
+		addQuestEntry(questFolder, SelectedCategory)
 	end
 end
 
---connects folder listeners for automatic refresh
+local ConnectedFolders = {}
+
 local function connectFolder(folder)
-	folder.ChildAdded:Connect(function()
-		task.wait(0.1)
+	if not folder or ConnectedFolders[folder] then
+		return
+	end
+
+	ConnectedFolders[folder] = true
+
+	folder.ChildAdded:Connect(function(child)
+		if child:IsA("Folder") then
+			connectFolder(child)
+		end
+
+		task.wait(0.05)
 		refreshQuests()
 	end)
 
-	folder.ChildRemoved:Connect(refreshQuests)
+	folder.ChildRemoved:Connect(function()
+		refreshQuests()
+	end)
 
 	for _, sub in ipairs(folder:GetChildren()) do
 		if sub:IsA("Folder") then
@@ -219,38 +363,54 @@ local function connectFolder(folder)
 	end
 end
 
---connect all quest folders
-connectFolder(QuestsFolder)
-
---switches to a different quest category
 local function switchCategory(category)
-	if SelectedCategory == category then return end
+	if SelectedCategory == category then
+		refreshQuests()
+		return
+	end
 
 	SelectedCategory = category
 	refreshQuests()
 end
 
---category button handlers
-DailyButton.Activated:Connect(function()
-	switchCategory("Daily")
-end)
+if QuestsFolder then
+	connectFolder(QuestsFolder)
+end
 
-WeeklyButton.Activated:Connect(function()
-	switchCategory("Weekly")
-end)
+if UI.DailyButton then
+	UI.DailyButton.Activated:Connect(function()
+		switchCategory("Daily")
+	end)
+end
 
-MonthlyButton.Activated:Connect(function()
-	switchCategory("Monthly")
-end)
+if UI.WeeklyButton then
+	UI.WeeklyButton.Activated:Connect(function()
+		switchCategory("Weekly")
+	end)
+end
 
---refresh when frame becomes visible
-QuestsFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-	if QuestsFrame.Visible then
-		refreshQuests()
-	end
-end)
+if UI.MonthlyButton then
+	UI.MonthlyButton.Activated:Connect(function()
+		switchCategory("Monthly")
+	end)
+end
 
---initial load
+if UI.CloseButton and not UI.CloseButton:GetAttribute("FrameName") then
+	UI.CloseButton.Activated:Connect(function()
+		if UI.Frame.Visible then
+			UI.Frame.Visible = false
+		end
+	end)
+end
+
+if UI.Frame then
+	UI.Frame:GetPropertyChangedSignal("Visible"):Connect(function()
+		if UI.Frame.Visible then
+			refreshQuests()
+		end
+	end)
+end
+
 refreshQuests()
 
 return Handler

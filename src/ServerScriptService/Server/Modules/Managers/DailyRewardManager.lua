@@ -2,6 +2,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local MAX_STREAK_GAP = 3
+
 local DailyRewards = {
 	[1] = { StatName = "Money", Amount = 500 },
 	[2] = { StatName = "Money", Amount = 1200 },
@@ -48,7 +50,36 @@ local function GetCurrentDay()
 	end
 end
 
-local function ClaimDailyReward(player)
+local function grantReward(userData: Folder, reward)
+	for _, data in ipairs(userData:GetDescendants()) do
+		if data and data.Name == reward.StatName then
+			data.Value = data.Value + reward.Amount
+		end
+	end
+end
+
+local function buildClaimSummary(claimedRewards)
+	local rewardTotals = {}
+	local rewardOrder = {}
+
+	for _, reward in ipairs(claimedRewards) do
+		if rewardTotals[reward.StatName] == nil then
+			rewardTotals[reward.StatName] = 0
+			table.insert(rewardOrder, reward.StatName)
+		end
+
+		rewardTotals[reward.StatName] += reward.Amount
+	end
+
+	local parts = {}
+	for _, statName in ipairs(rewardOrder) do
+		table.insert(parts, string.format("%d %s", rewardTotals[statName], statName))
+	end
+
+	return table.concat(parts, ", ")
+end
+
+local function ClaimDailyReward(player, claimAll)
 	local userData = player:FindFirstChild("UserData")
 	if not userData then
 		warn(player.Name.." has no UserData folder")
@@ -70,8 +101,9 @@ local function ClaimDailyReward(player)
 	local today = GetCurrentDay() -- gets the day today
 	local daysSince = today - lastClaim.Value
 
-	if daysSince > 3 then -- if last day claimed is over 3 then return to 0
+	if daysSince > MAX_STREAK_GAP then -- if last day claimed is over 3 then return to 0
 		streak.Value = 0
+		daysSince = 1
 	end
 
 	if daysSince < 1 then -- if its less then 1 day then return false
@@ -79,29 +111,43 @@ local function ClaimDailyReward(player)
 		return false
 	end
 
-	streak.Value = streak.Value + 1
-	lastClaim.Value = today
+	local claimCount = claimAll and math.clamp(daysSince, 1, MAX_STREAK_GAP) or 1
+	local currentStreak = streak.Value
+	local claimedRewards = {}
+	local claimedDays = {}
 
-	local dayIndex = ((streak.Value - 1) % #DailyRewards) + 1
-	local reward = DailyRewards[dayIndex]
+	for _ = 1, claimCount do
+		currentStreak += 1
 
-	for _, Data in ipairs(userData:GetDescendants()) do
-		if Data and Data.Name == reward.StatName then
-			Data.Value = Data.Value + reward.Amount
+		local dayIndex = ((currentStreak - 1) % #DailyRewards) + 1
+		local reward = DailyRewards[dayIndex]
+
+		grantReward(userData, reward)
+		table.insert(claimedRewards, reward)
+		table.insert(claimedDays, dayIndex)
+
+		if dayIndex == 7 then -- if final day return to 0
+			currentStreak = 0
 		end
 	end
 
-	ReplicatedStorage.Remotes.Notification.SendNotification:FireClient(player, string.format("You claimed %d %s for Day %d!", reward.Amount, reward.StatName, dayIndex), "Success")
+	streak.Value = currentStreak
+	lastClaim.Value = today
 
-	if dayIndex == 7 then -- if final day return to 0
-		streak.Value = 0
+	if #claimedRewards == 1 then
+		local reward = claimedRewards[1]
+		local dayIndex = claimedDays[1]
+		ReplicatedStorage.Remotes.Notification.SendNotification:FireClient(player, string.format("You claimed %d %s for Day %d!", reward.Amount, reward.StatName, dayIndex), "Success")
+	else
+		local summary = buildClaimSummary(claimedRewards)
+		ReplicatedStorage.Remotes.Notification.SendNotification:FireClient(player, string.format("You claimed all available daily rewards: %s.", summary), "Success")
 	end
 
 	return true
 end
 
-ReplicatedStorage.Remotes.Daily.claimReward.OnServerEvent:Connect(function(player)
-	ClaimDailyReward(player)
+ReplicatedStorage.Remotes.Daily.claimReward.OnServerEvent:Connect(function(player, claimAll)
+	ClaimDailyReward(player, claimAll == true)
 end)
 
 return {}

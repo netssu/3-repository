@@ -17,9 +17,12 @@ CrateData.UnitTiers = {
 
 CrateData.TemporaryRotationPeriod = 86400
 CrateData.TemporaryBannerOrder = {
-	"BananaBomb",
-	"HolyHand",
-	"BunkerBuster",
+	"Basic Weapon Crate",
+	"Explosive Crate",
+	"Utility Crate",
+	"Legendary Arsenal Crate",
+	"Event Crate",
+	"Mythic Mayhem Crate",
 }
 
 CrateData.Banners = {
@@ -79,130 +82,170 @@ CrateData.Banners = {
 		},
 	},
 
-	["BananaBomb"] = {
-		DisplayName = "Banana Bomb Crate",
-		Price = 7500,
+	["Basic Weapon Crate"] = {
+		DisplayName = "Basic Weapon Crate",
+		Price = 1500,
+		Currency = "Coins",
+		PityThreshold = 50,
+		Rates = {
+			["Common"] = 7000,
+			["Rare"] = 2500,
+			["Epic"] = 450,
+			["Legendary"] = 50,
+			["Mythic"] = 0,
+		},
+		UnitPoolByRarity = {
+			Common = {"Suzette", "Cowboy"},
+			Rare = {"Sheriff Pete"},
+			Epic = {"General"},
+			Legendary = {"Wizard"},
+		},
+	},
+
+	["Explosive Crate"] = {
+		DisplayName = "Explosive Crate",
+		Price = 6500,
+		Currency = "Coins",
+		PityThreshold = 45,
+		Rates = {
+			["Common"] = 3500,
+			["Rare"] = 3500,
+			["Epic"] = 2300,
+			["Legendary"] = 600,
+			["Mythic"] = 100,
+		},
+		UnitPoolByRarity = {
+			Common = {"Cowboy"},
+			Rare = {"Sheriff Pete"},
+			Epic = {"Grenader", "General"},
+			Legendary = {"Wobblus"},
+			Mythic = {"Airport"},
+		},
+	},
+
+	["Utility Crate"] = {
+		DisplayName = "Utility Crate",
+		Price = 6500,
+		Currency = "Coins",
+		PityThreshold = 45,
+		Rates = {
+			["Common"] = 4000,
+			["Rare"] = 3500,
+			["Epic"] = 2000,
+			["Legendary"] = 450,
+			["Mythic"] = 50,
+		},
+		UnitPoolByRarity = {
+			Common = {"Suzette"},
+			Rare = {"Tim Scientist"},
+			Epic = {"Magician"},
+			Legendary = {"Wizard"},
+			Mythic = {"Professor"},
+		},
+	},
+
+	["Legendary Arsenal Crate"] = {
+		DisplayName = "Legendary Arsenal Crate",
+		Price = 15000,
 		Currency = "Coins",
 		PityThreshold = 35,
-		ThemeColor = Color3.fromRGB(226, 194, 64),
-		DisableHourlyRotation = true,
 		Rates = {
 			["Common"] = 0,
-			["Rare"] = 4200,
+			["Rare"] = 3000,
+			["Epic"] = 5000,
+			["Legendary"] = 1800,
+			["Mythic"] = 200,
+		},
+		UnitPoolByRarity = {
+			Rare = {"Sheriff Pete", "Tim Scientist"},
+			Epic = {"Grenader", "Magician", "General"},
+			Legendary = {"Wizard", "Wobblus"},
+			Mythic = {"Professor", "Airport", "Grandma"},
+		},
+	},
+
+	["Event Crate"] = {
+		DisplayName = "Event Crate",
+		Price = 20000,
+		Currency = "Coins",
+		PityThreshold = 35,
+		Rates = {
+			["Common"] = 2000,
+			["Rare"] = 3500,
+			["Epic"] = 3000,
+			["Legendary"] = 1300,
+			["Mythic"] = 200,
+		},
+		UnitPoolByRarity = {
+			Common = {"Suzette", "Cowboy"},
+			Rare = {"Sheriff Pete", "Tim Scientist"},
+			Epic = {"Grenader", "Magician", "General"},
+			Legendary = {"Wizard", "Wobblus"},
+			Mythic = {"Professor", "Airport", "Grandma"},
+		},
+	},
+
+	["Mythic Mayhem Crate"] = {
+		DisplayName = "Mythic Mayhem Crate",
+		Price = 500,
+		Currency = "Gems",
+		PityThreshold = 25,
+		Rates = {
+			["Common"] = 0,
+			["Rare"] = 1000,
 			["Epic"] = 3500,
-			["Legendary"] = 1900,
-			["Mythic"] = 400,
+			["Legendary"] = 4000,
+			["Mythic"] = 1500,
 		},
 		UnitPoolByRarity = {
-			["Rare"] = {"Sheriff Pete", "Tim Scientist"},
-			["Epic"] = {"Grenader", "Magician"},
-			["Legendary"] = {"Wobblus"},
-			["Mythic"] = {"Grandma"},
-		},
-	},
-
-	["HolyHand"] = {
-		DisplayName = "Holy Hand Crate",
-		Price = 9000,
-		Currency = "Coins",
-		PityThreshold = 32,
-		ThemeColor = Color3.fromRGB(119, 171, 255),
-		DisableHourlyRotation = true,
-		Rates = {
-			["Common"] = 0,
-			["Rare"] = 2600,
-			["Epic"] = 4300,
-			["Legendary"] = 2600,
-			["Mythic"] = 500,
-		},
-		UnitPoolByRarity = {
-			["Rare"] = {"Sheriff Pete", "Tim Scientist"},
-			["Epic"] = {"General", "Grenader"},
-			["Legendary"] = {"Wizard"},
-			["Mythic"] = {"Professor"},
-		},
-	},
-
-	["BunkerBuster"] = {
-		DisplayName = "Bunker Buster Crate",
-		Price = 12000,
-		Currency = "Coins",
-		PityThreshold = 28,
-		ThemeColor = Color3.fromRGB(255, 118, 88),
-		DisableHourlyRotation = true,
-		Rates = {
-			["Common"] = 0,
-			["Rare"] = 1800,
-			["Epic"] = 4200,
-			["Legendary"] = 3200,
-			["Mythic"] = 800,
-		},
-		UnitPoolByRarity = {
-			["Rare"] = {"Tim Scientist"},
-			["Epic"] = {"General", "Magician"},
-			["Legendary"] = {"Wizard", "Wobblus"},
-			["Mythic"] = {"Airport", "Professor"},
+			Rare = {"Sheriff Pete", "Tim Scientist"},
+			Epic = {"Grenader", "Magician", "General"},
+			Legendary = {"Wizard", "Wobblus"},
+			Mythic = {"Professor", "Airport", "Grandma"},
 		},
 	},
 }
 
-local function copyArray(list)
-	local result = {}
-	if type(list) ~= "table" then
-		return result
+function CrateData.ResolveBannerName(bannerName, timestamp)
+	if bannerName ~= "Temporary" then
+		return bannerName
 	end
 
-	for _, value in ipairs(list) do
-		table.insert(result, value)
-	end
-
-	return result
-end
-
-function CrateData.GetActiveTemporaryBannerId(timestamp: number?)
 	local order = CrateData.TemporaryBannerOrder
-	if #order == 0 then
-		return nil
+	if type(order) ~= "table" or #order == 0 then
+		return bannerName
 	end
 
-	local now = math.max(0, math.floor(timestamp or os.time()))
-	local rotationIndex = (math.floor(now / CrateData.TemporaryRotationPeriod) % #order) + 1
-	return order[rotationIndex]
+	local period = tonumber(CrateData.TemporaryRotationPeriod) or 86400
+	local rotationIndex = (math.floor((timestamp or os.time()) / period) % #order) + 1
+	return order[rotationIndex] or order[1] or bannerName
 end
 
-function CrateData.GetSecondsUntilNextTemporaryRotation(timestamp: number?)
-	local now = math.max(0, math.floor(timestamp or os.time()))
-	local period = CrateData.TemporaryRotationPeriod
-	local elapsed = now % period
-	local remaining = period - elapsed
-	if remaining == period then
-		return 0
-	end
-	return remaining
-end
-
-function CrateData.ResolveBannerName(boxType: string, timestamp: number?)
-	if boxType == "Temporary" then
-		return CrateData.GetActiveTemporaryBannerId(timestamp) or "Temporary"
-	end
-
-	return boxType
-end
-
-function CrateData.GetBanner(boxType: string, timestamp: number?)
-	local resolvedBannerName = CrateData.ResolveBannerName(boxType, timestamp)
+function CrateData.GetBanner(bannerName, timestamp)
+	local resolvedBannerName = CrateData.ResolveBannerName(bannerName, timestamp)
 	return CrateData.Banners[resolvedBannerName], resolvedBannerName
 end
 
-function CrateData.GetUnitsForBanner(boxType: string, rarity: string, timestamp: number?)
-	local bannerInfo = CrateData.GetBanner(boxType, timestamp)
+function CrateData.GetSecondsUntilNextTemporaryRotation(timestamp)
+	local now = math.max(0, math.floor(timestamp or os.time()))
+	local period = tonumber(CrateData.TemporaryRotationPeriod) or 86400
+	local elapsed = now % period
+	local remaining = period - elapsed
+	return remaining == period and 0 or remaining
+end
+
+function CrateData.GetUnitsForBanner(bannerName, targetRarity, timestamp)
+	local bannerInfo = CrateData.GetBanner(bannerName, timestamp)
+	local pool = bannerInfo and bannerInfo.UnitPoolByRarity and bannerInfo.UnitPoolByRarity[targetRarity]
 	local candidates = {}
 
-	if bannerInfo and bannerInfo.UnitPoolByRarity and bannerInfo.UnitPoolByRarity[rarity] then
-		candidates = copyArray(bannerInfo.UnitPoolByRarity[rarity])
-	else
+	if type(pool) == "table" then
+		for _, unitName in ipairs(pool) do
+			table.insert(candidates, unitName)
+		end
+	elseif type(CrateData.UnitTiers) == "table" then
 		for unitName, tier in pairs(CrateData.UnitTiers) do
-			if tier == rarity then
+			if tier == targetRarity then
 				table.insert(candidates, unitName)
 			end
 		end

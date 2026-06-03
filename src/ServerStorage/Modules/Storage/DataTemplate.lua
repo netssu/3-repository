@@ -2,6 +2,7 @@
 return {
 
 	["Money"] = 500,
+	["Gems"] = 0,
 
 	["Level"] = 0,
 	["EXP"]   = 0,
@@ -11,22 +12,22 @@ return {
 
 	["RemainingTimer"] = 14400,
 
-	["LobbyCrateTimers"] = {
-		["LobbyGold"] = 14400,
-		["LobbySteel"] = 21600,
-		["LobbyDiamond"] = 43200,
-	},
-
 	["Map"] = {
 		Level = "Frosty Peaks",
 		Difficulty = "Normal",
 	},
 
 	["Crates"] = {
-		["Normal"]  = 0,
-		["Steel"]   = 0,
-		["Golden"]  = 0,
-		["Diamond"] = 0,
+		["Normal"]                 = 0,
+		["Steel"]                  = 0,
+		["Golden"]                 = 0,
+		["Diamond"]                = 0,
+		["Basic Weapon Crate"]     = 0,
+		["Explosive Crate"]        = 0,
+		["Utility Crate"]          = 0,
+		["Legendary Arsenal Crate"] = 0,
+		["Event Crate"]            = 0,
+		["Mythic Mayhem Crate"]    = 0,
 	},
 
 	["Hotbar"] = {
@@ -52,10 +53,6 @@ return {
 	["Consumables"] = {},
 
 	["CompletedTutorial"] = false,
-	["Onboarding"] = {
-		["Stage"] = "spawn",
-		["Completed"] = false,
-	},
 
 	["Clan"] = "",
 

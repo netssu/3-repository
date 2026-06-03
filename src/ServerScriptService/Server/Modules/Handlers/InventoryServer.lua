@@ -191,7 +191,7 @@ local function ApplyConsumable(Player: Player, TowerName: string, ConsumableName
 	elseif effectType == "Range" then
 		entry.Range = (entry.Range or 0) + effectValue
 
-	elseif effectType == "AttackCooldown" then
+	elseif effectType == "AttackCooldown" or effectType == "Cooldown" then
 		entry.AttackCooldown = (entry.AttackCooldown or 0) + effectValue
 
 	else

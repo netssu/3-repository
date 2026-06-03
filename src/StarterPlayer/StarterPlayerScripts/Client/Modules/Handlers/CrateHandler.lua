@@ -67,12 +67,48 @@ local function formatWithCommas(n)
 end
 
 local function getBannerInfo(bannerName)
-	return CrateData.GetBanner(bannerName, os.time())
+	local timestamp = os.time()
+
+	if type(CrateData.GetBanner) == "function" then
+		return CrateData.GetBanner(bannerName, timestamp)
+	end
+
+	local resolvedBannerName = bannerName
+	if type(CrateData.ResolveBannerName) == "function" then
+		resolvedBannerName = CrateData.ResolveBannerName(bannerName, timestamp)
+	end
+
+	local banners = CrateData.Banners
+	return banners and banners[resolvedBannerName], resolvedBannerName
+end
+
+local function getUnitsForBanner(bannerName, targetRarity)
+	if type(CrateData.GetUnitsForBanner) == "function" then
+		return CrateData.GetUnitsForBanner(bannerName, targetRarity, os.time())
+	end
+
+	local bannerInfo = getBannerInfo(bannerName)
+	local candidates = {}
+
+	if bannerInfo and bannerInfo.UnitPoolByRarity and bannerInfo.UnitPoolByRarity[targetRarity] then
+		for _, unitName in ipairs(bannerInfo.UnitPoolByRarity[targetRarity]) do
+			table.insert(candidates, unitName)
+		end
+	elseif type(CrateData.UnitTiers) == "table" then
+		for unitName, tier in pairs(CrateData.UnitTiers) do
+			if tier == targetRarity then
+				table.insert(candidates, unitName)
+			end
+		end
+	end
+
+	table.sort(candidates)
+	return candidates
 end
 
 local function getUnitsInRotation(bannerName, targetRarity)
 	local bannerInfo = getBannerInfo(bannerName)
-	local allUnitsOfRarity = CrateData.GetUnitsForBanner(bannerName, targetRarity, os.time())
+	local allUnitsOfRarity = getUnitsForBanner(bannerName, targetRarity)
 
 	if #allUnitsOfRarity == 0 then
 		return {}
@@ -130,6 +166,83 @@ local function formatRotationCountdown(secondsRemaining)
 	return string.format("%02d:%02d:%02d", hours, minutes, seconds)
 end
 
+local function getSecondsUntilNextTemporaryRotation(timestamp)
+	if type(CrateData.GetSecondsUntilNextTemporaryRotation) == "function" then
+		return CrateData.GetSecondsUntilNextTemporaryRotation(timestamp)
+	end
+
+	return 0
+end
+
+local function isSupportedCrateButtonName(buttonName)
+	if buttonName == "Temporary" then
+		return type(CrateData.ResolveBannerName) == "function" or type(CrateData.GetBanner) == "function"
+	end
+
+	return type(CrateData.Banners) == "table" and CrateData.Banners[buttonName] ~= nil
+end
+
+local function getResolvedCrateName(crateName)
+	local _, resolvedCrateName = getBannerInfo(crateName)
+	return resolvedCrateName or crateName
+end
+
+local function findFirstNamedDescendant(root, names)
+	if not root then
+		return nil
+	end
+
+	for _, targetName in ipairs(names) do
+		local directChild = root:FindFirstChild(targetName)
+		if directChild then
+			return directChild
+		end
+	end
+
+	for _, targetName in ipairs(names) do
+		local descendant = root:FindFirstChild(targetName, true)
+		if descendant then
+			return descendant
+		end
+	end
+
+	return nil
+end
+
+local function describeMissingUi(priceText, ownedLabel, crateIcon)
+	local missing = {}
+
+	if not priceText then
+		table.insert(missing, "Price")
+	end
+
+	if not ownedLabel then
+		table.insert(missing, "Owned")
+	end
+
+	if not crateIcon then
+		table.insert(missing, "MainIcon/Icon")
+	end
+
+	return table.concat(missing, ", ")
+end
+
+local function waitForDescendant(root, name, timeout)
+	local deadline = os.clock() + (timeout or 5)
+
+	repeat
+		local found = root:FindFirstChild(name, true)
+		if found then
+			return found
+		end
+
+		task.wait(0.1)
+	until os.clock() >= deadline
+
+	warn("[CrateHandler] Missing UI object:", name, "under", root:GetFullName())
+	return nil
+end
+
 -- Function to completely detach a button from GuiManager
 local function SanitizeButton(originalButton, parent)
 	local clone = originalButton:Clone()
@@ -180,9 +293,16 @@ local function HandleCrateUI()
 
 		--ui references
 		local CrateFrame = Frames:WaitForChild("Crates")
-		local PreviewContainer = CrateFrame:WaitForChild("ItemFrame")
-		local ChancesFrame = CrateFrame:WaitForChild("ChancesFrame")
-		local CratesContainer = CrateFrame:WaitForChild("ScrollingFrame")
+		local CrateHolder = CrateFrame:FindFirstChild("Holder") or waitForDescendant(CrateFrame, "Holder", 5)
+		local PreviewContainer = (CrateHolder and CrateHolder:FindFirstChild("ItemFrame")) or waitForDescendant(CrateFrame, "ItemFrame", 5)
+		if not PreviewContainer then
+			return
+		end
+
+		local ChancesFrame = PreviewContainer:FindFirstChild("ChancesFrame") or waitForDescendant(PreviewContainer, "ChancesFrame", 5)
+		if not ChancesFrame then
+			return
+		end
 
 		--remove layout constraints to prevent button jumping
 		for _, child in ipairs(PreviewContainer:GetChildren()) do
@@ -192,10 +312,13 @@ local function HandleCrateUI()
 		end
 
 		--preview elements
-		local PreviewTitle = PreviewContainer:WaitForChild("CrateName")
-		local OpenButtonOriginal = PreviewContainer:WaitForChild("Open")
-		local PurchaseButtonOriginal = PreviewContainer:WaitForChild("Buy")
-		local ChancesButtonOriginal = PreviewContainer:WaitForChild("Chances")
+		local PreviewTitle = PreviewContainer:FindFirstChild("CrateName") or waitForDescendant(PreviewContainer, "CrateName", 5)
+		local OpenButtonOriginal = PreviewContainer:FindFirstChild("Open") or waitForDescendant(PreviewContainer, "Open", 5)
+		local PurchaseButtonOriginal = PreviewContainer:FindFirstChild("Buy") or waitForDescendant(PreviewContainer, "Buy", 5)
+		local ChancesButtonOriginal = PreviewContainer:FindFirstChild("Chances") or waitForDescendant(PreviewContainer, "Chances", 5)
+		if not PreviewTitle or not OpenButtonOriginal or not PurchaseButtonOriginal or not ChancesButtonOriginal then
+			return
+		end
 
 		-- REPLACE BUTTONS TO KILL GUIMANAGER CONFLICT
 		local ChancesButton = SanitizeButton(ChancesButtonOriginal, PreviewContainer)
@@ -204,9 +327,21 @@ local function HandleCrateUI()
 		local OpenButton = OpenButtonOriginal
 		local PurchaseButton = PurchaseButtonOriginal
 
-		local PriceText = PurchaseButton:WaitForChild("Frame"):WaitForChild("Price")
-		local OwnedAmountLabel = OpenButton:WaitForChild("Owned")
-		local CrateIcon = PreviewContainer:WaitForChild("MainIcon")
+		local AmountFrame = (CrateHolder and CrateHolder:FindFirstChild("Amount")) or CrateFrame:FindFirstChild("Amount", true)
+		local PriceText = findFirstNamedDescendant(AmountFrame, {"Price"})
+			or findFirstNamedDescendant(PurchaseButton, {"Price"})
+			or findFirstNamedDescendant(CrateHolder, {"Price"})
+			or findFirstNamedDescendant(CrateFrame, {"Price"})
+		local PriceIcon = findFirstNamedDescendant(AmountFrame, {"Icon"})
+		local OwnedAmountLabel = findFirstNamedDescendant(CrateHolder, {"Owned"})
+			or findFirstNamedDescendant(OpenButton, {"Owned"})
+		local ItemBG = PreviewContainer:FindFirstChild("ItemBG") or PreviewContainer:FindFirstChild("ItemBG", true)
+		local CrateIcon = findFirstNamedDescendant(ItemBG, {"MainIcon", "MainIon", "Icon"})
+			or findFirstNamedDescendant(PreviewContainer, {"MainIcon", "MainIon"})
+		if not PriceText or not OwnedAmountLabel or not CrateIcon then
+			warn("[CrateHandler] Missing required preview labels/icons under:", PreviewContainer:GetFullName(), "missing:", describeMissingUi(PriceText, OwnedAmountLabel, CrateIcon))
+			return
+		end
 
 		--scripted ui elements
 
@@ -224,8 +359,6 @@ local function HandleCrateUI()
 		TimerLabel.Parent = PreviewContainer
 
 		--chances button positioning setup
-		ChancesButton.AnchorPoint = Vector2.new(0.5, 0)
-		ChancesButton.Position = UDim2.new(0.5, 0, 0.22, 0)
 		-- ZINDEX 302: O botão ? tem que estar ACIMA da lista (que será 300)
 		--ChancesButton.ZIndex = 302 
 
@@ -244,12 +377,6 @@ local function HandleCrateUI()
 
 		--state
 		local SelectedCrate = "Normal"
-		local TemporaryButton = nil
-		local TemporaryButtonPriceText = nil
-		local TemporaryButtonNameLabel = nil
-		local TemporaryButtonTimerLabel = nil
-		local lastTemporaryBannerName = nil
-		local lastSecond = -1
 
 		--crate icon assets
 		local CrateIcons = {
@@ -257,7 +384,12 @@ local function HandleCrateUI()
 			Steel = "rbxassetid://78854786317873",
 			Golden = "rbxassetid://77544826310708",
 			Diamond = "rbxassetid://139414131564390",
-			Temporary = "rbxassetid://77544826310708",
+			["Basic Weapon Crate"] = "rbxassetid://79132028062877",
+			["Explosive Crate"] = "rbxassetid://77544826310708",
+			["Utility Crate"] = "rbxassetid://78854786317873",
+			["Legendary Arsenal Crate"] = "rbxassetid://77544826310708",
+			["Event Crate"] = "rbxassetid://139414131564390",
+			["Mythic Mayhem Crate"] = "rbxassetid://139414131564390",
 		}
 
 		local function applyPriceLabel(targetLabel, bannerInfo, useCurrencyColor)
@@ -283,132 +415,71 @@ local function HandleCrateUI()
 			end
 		end
 
-		local function refreshTemporaryButton()
-			if not TemporaryButton then
-				return
-			end
-
-			local activeBannerInfo, activeBannerName = CrateData.GetBanner("Temporary", os.time())
-			if not activeBannerInfo then
-				return
-			end
-
-			lastTemporaryBannerName = activeBannerName
-			TemporaryButton.BackgroundColor3 = activeBannerInfo.ThemeColor or Color3.fromRGB(70, 70, 70)
-			if TemporaryButtonNameLabel then
-				TemporaryButtonNameLabel.Text = activeBannerInfo.DisplayName
-			end
-			applyPriceLabel(TemporaryButtonPriceText, activeBannerInfo, false)
-			if TemporaryButtonTimerLabel then
-				TemporaryButtonTimerLabel.Text = formatRotationCountdown(CrateData.GetSecondsUntilNextTemporaryRotation(os.time()))
-			end
-		end
-
 		--update preview function
 		local function updatePreview(hideItemFrame)
-			local BannerInfo = getBannerInfo(SelectedCrate)
+			local BannerInfo, ResolvedCrateName = getBannerInfo(SelectedCrate)
+			ResolvedCrateName = ResolvedCrateName or SelectedCrate
 
 			--toggle visibility
 			if not hideItemFrame then
-				CrateFrame.ItemFrame.Visible = true
+				PreviewContainer.Visible = true
 			else
-				CrateFrame.ChancesFrame.Visible = false
+				ChancesFrame.Visible = false
 			end
 
 			--update labels
-			PreviewTitle.Text = BannerInfo and BannerInfo.DisplayName or SelectedCrate
+			PreviewTitle.Text = BannerInfo and BannerInfo.DisplayName or ResolvedCrateName
 			TimerLabel.Visible = SelectedCrate == "Temporary"
-			if TimerLabel.Visible then
-				TimerLabel.Text = "ROTATES IN " .. formatRotationCountdown(CrateData.GetSecondsUntilNextTemporaryRotation(os.time()))
-			else
-				TimerLabel.Text = ""
-			end
+			TimerLabel.Text = TimerLabel.Visible and ("ROTATES IN " .. formatRotationCountdown(getSecondsUntilNextTemporaryRotation(os.time()))) or ""
 
 			--update pity
 			local pityFolder = UserData:FindFirstChild("BannerPity")
 			local currentPity = 0
-			if pityFolder and pityFolder:FindFirstChild(SelectedCrate) then
-				currentPity = pityFolder[SelectedCrate].Value
+			if pityFolder and pityFolder:FindFirstChild(ResolvedCrateName) then
+				currentPity = pityFolder[ResolvedCrateName].Value
 			end
 			local threshold = BannerInfo and BannerInfo.PityThreshold or 50
 			PityLabel.Text = "PITY: " .. currentPity .. " / " .. threshold
 
 			--update icon
-			if SelectedCrate == "Temporary" then
-				local bestUnit = getBestUnitForBanner(SelectedCrate)
-				if bestUnit and TowerData[bestUnit] and TowerData[bestUnit].ImageId then
-					CrateIcon.Image = "rbxassetid://" .. TowerData[bestUnit].ImageId
-				elseif CrateIcons.Temporary then
-					CrateIcon.Image = CrateIcons.Temporary
-				end
-			elseif CrateIcons[SelectedCrate] then
-				CrateIcon.Image = CrateIcons[SelectedCrate]
+			if CrateIcons[ResolvedCrateName] then
+				CrateIcon.Image = CrateIcons[ResolvedCrateName]
 			end
 
 			--update owned amount
 			local CratesFolder = UserData:FindFirstChild("Crates")
 			local ownedAmount = 0
-			if CratesFolder and CratesFolder:FindFirstChild(SelectedCrate) then
-				ownedAmount = CratesFolder[SelectedCrate].Value
+			if CratesFolder and CratesFolder:FindFirstChild(ResolvedCrateName) then
+				ownedAmount = CratesFolder[ResolvedCrateName].Value
 			end
 
 			OwnedAmountLabel.Visible = true
 			OwnedAmountLabel.Text = "Owned: " .. ownedAmount
 			OpenButton.Visible = true 
-			PriceText.Parent.Icon.Visible = false
+			if PriceIcon then
+				PriceIcon.Visible = false
+			end
 
 			--update price
 			applyPriceLabel(PriceText, BannerInfo, true)
 			if BannerInfo then
 				local currencyData = CurrencyConfig[BannerInfo.Currency] or CurrencyConfig.Coins
-				PriceText.Parent.Icon.Visible = currencyData.UseIcon
+				if PriceIcon then
+					PriceIcon.Visible = currencyData.UseIcon
+				end
 			else
 				PriceText.Text = "???"
 			end
 		end
 
-		--timer loop WITH POSITION LOCK
-		RunService.Heartbeat:Connect(function()
-			-- FORCE POSITION EVERY FRAME (Double protection)
-			ChancesButton.AnchorPoint = Vector2.new(0.5, 0)
-			ChancesButton.Position = UDim2.new(0.5, 0, 0.22, 0)
-
-			local currentSecond = os.time()
-			if currentSecond == lastSecond then
-				return
-			end
-
-			lastSecond = currentSecond
-			refreshTemporaryButton()
-
-			if SelectedCrate == "Temporary" then
-				local currentBannerName = CrateData.ResolveBannerName("Temporary", currentSecond)
-				if currentBannerName ~= lastTemporaryBannerName then
-					refreshTemporaryButton()
-				end
-				if CrateFrame.Visible then
-					updatePreview()
-				end
-			end
-		end)
-
 		--setup crate buttons (REMOVED VIEWPORT LOGIC AS REQUESTED)
-		for _, Button in ipairs(CratesContainer:GetChildren()) do
-			if not Button:IsA("ImageButton") then continue end
+		for _, Button in ipairs(CrateFrame:GetDescendants()) do
+			if not Button:IsA("GuiButton") or not isSupportedCrateButtonName(Button.Name) then continue end
 
-			local Holder = Button:FindFirstChild("Holder")
-			local ButtonPriceText = Holder:FindFirstChild("Price")
+			local ButtonPriceText = findFirstNamedDescendant(Button, {"Price"})
 
-			if Button.Name == "Temporary" then
-				TemporaryButton = Button
-				TemporaryButtonPriceText = ButtonPriceText
-				TemporaryButtonNameLabel = Button:FindFirstChild("WormName")
-				TemporaryButtonTimerLabel = Button:FindFirstChild("Timer")
-				refreshTemporaryButton()
-			else
-				local BannerInfo = getBannerInfo(Button.Name)
-				applyPriceLabel(ButtonPriceText, BannerInfo, BannerInfo and BannerInfo.Currency == "Gems")
-			end
+			local BannerInfo = getBannerInfo(Button.Name)
+			applyPriceLabel(ButtonPriceText, BannerInfo, BannerInfo and BannerInfo.Currency == "Gems")
 
 			Button.Activated:Connect(function()
 				SelectedCrate = Button.Name
@@ -422,9 +493,13 @@ local function HandleCrateUI()
 		--visible signal
 		CrateFrame:GetPropertyChangedSignal("Visible"):Connect(function()
 			if CrateFrame.Visible then
-				updatePreview(true)
+				SelectedCrate = "Normal"
+				ChancesFrame.Visible = false
+				updatePreview(false)
 			end
 		end)
+
+		updatePreview(false)
 
 		--chances hover
 		ChancesButton.MouseEnter:Connect(function()
@@ -489,7 +564,7 @@ local function HandleCrateUI()
 
 		--open handler
 		OpenButton.Activated:Connect(function()
-			ReplicatedStorage.Remotes.Game.Unbox:FireServer(SelectedCrate)
+			ReplicatedStorage.Remotes.Game.Unbox:FireServer(getResolvedCrateName(SelectedCrate))
 			updatePreview()
 		end)
 
@@ -498,10 +573,11 @@ local function HandleCrateUI()
 			local CratesFolder = UserData:FindFirstChild("Crates")
 			if not CratesFolder then return end
 
+			local ResolvedCrateName = getResolvedCrateName(SelectedCrate)
 			local BannerInfo = getBannerInfo(SelectedCrate)
 			if not BannerInfo then return end
 
-			local Crate = CratesFolder:FindFirstChild(SelectedCrate)
+			local Crate = CratesFolder:FindFirstChild(ResolvedCrateName)
 			local oldAmount = Crate and Crate.Value or 0
 
 			if BannerInfo.Currency == "Robux" then
@@ -509,7 +585,7 @@ local function HandleCrateUI()
 					MarketplaceService:PromptProductPurchase(Player, 3449816999)
 				end
 			else
-				ReplicatedStorage.Remotes.Game.PurchaseBox:FireServer(SelectedCrate)
+				ReplicatedStorage.Remotes.Game.PurchaseBox:FireServer(ResolvedCrateName)
 			end
 
 			task.spawn(function()
@@ -519,14 +595,14 @@ local function HandleCrateUI()
 
 				repeat
 					task.wait(0.1)
-					Crate = CratesFolder:FindFirstChild(SelectedCrate)
+					Crate = CratesFolder:FindFirstChild(ResolvedCrateName)
 					if Crate and Crate.Value > oldAmount then
 						found = true
 					end
 				until found or (tick() - startTime > timeout)
 
 				if found then
-					ReplicatedStorage.Remotes.Game.Unbox:FireServer(SelectedCrate)
+					ReplicatedStorage.Remotes.Game.Unbox:FireServer(ResolvedCrateName)
 					updatePreview()
 				end
 			end)
