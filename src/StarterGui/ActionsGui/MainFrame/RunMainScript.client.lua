@@ -26,6 +26,7 @@ local MainFrame = script.Parent
 local Vignette = MainFrame.Vignette
 local RunButton = MobileGui:WaitForChild("RunButton") :: ImageButton
 local StaminaBar = MainFrame.StaminaFrame
+local SPRINT_LABEL_TEXT_SIZE = 18
 
 --//Sound
 local PantingSound = MainFrame.PantingSound
@@ -61,6 +62,80 @@ local CanRun = true
 local Running = Player:WaitForChild("PlayerValues"):WaitForChild("Running") :: BoolValue
 local Crouching = Player:WaitForChild("PlayerValues"):WaitForChild("Crouching") :: BoolValue
 local loadedPass = false
+
+local function createSprintLabel()
+	StaminaBar.ClipsDescendants = false
+
+	local oldLabel = StaminaBar:FindFirstChild("SprintLabel")
+	if oldLabel then
+		oldLabel:Destroy()
+	end
+
+	local existingLabel = MainFrame:FindFirstChild("SprintLabel")
+	if existingLabel and existingLabel:IsA("TextLabel") then
+		return existingLabel
+	end
+
+	local inventoryGui = PlayerGui:FindFirstChild("InventoryGui") or PlayerGui:WaitForChild("InventoryGui", 5)
+	local inventoryMain = inventoryGui and inventoryGui:FindFirstChild("MainFrame")
+	local dropHint = inventoryMain and inventoryMain:FindFirstChild("DropHint")
+
+	local label = nil
+	if dropHint and dropHint:IsA("TextLabel") then
+		label = dropHint:Clone()
+	else
+		label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.GothamSemibold
+		label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		label.TextStrokeTransparency = 0.35
+	end
+
+	label.Name = "SprintLabel"
+	label.AnchorPoint = Vector2.new(0.5, 1)
+	label.AutomaticSize = Enum.AutomaticSize.None
+	label.BackgroundTransparency = 1
+	label.Position = UDim2.new(0.5, 0, 0, -4)
+	label.Size = UDim2.new(2, 0, 0, 20)
+	label.Text = "Sprint"
+	label.TextScaled = false
+	label.TextSize = SPRINT_LABEL_TEXT_SIZE
+	label.TextTransparency = 1
+	label.TextStrokeTransparency = 1
+	label.TextWrapped = false
+	label.TextXAlignment = Enum.TextXAlignment.Center
+	label.Visible = true
+	label.ZIndex = StaminaBar.ZIndex + 1
+	label.Parent = MainFrame
+
+	return label
+end
+
+local SprintLabel = createSprintLabel()
+local function updateSprintLabelLayout()
+	local mainFramePosition = MainFrame.AbsolutePosition
+	local staminaPosition = StaminaBar.AbsolutePosition
+	local staminaSize = StaminaBar.AbsoluteSize
+	local labelWidth = math.max(staminaSize.X * 2, 160)
+
+	SprintLabel.Size = UDim2.fromOffset(labelWidth, 20)
+	SprintLabel.Position = UDim2.fromOffset(
+		staminaPosition.X - mainFramePosition.X + (staminaSize.X / 2),
+		staminaPosition.Y - mainFramePosition.Y - 4
+	)
+end
+
+local function tweenStaminaVisibility(visible: boolean)
+	updateSprintLabelLayout()
+	local tweenInfo = TweenInfo.new(0.15)
+	Ts:Create(StaminaBar.UIStroke, tweenInfo, {Transparency = visible and 0.5 or 1}):Play()
+	Ts:Create(StaminaBar.Bar, tweenInfo, {BackgroundTransparency = visible and 0.2 or 1}):Play()
+	Ts:Create(SprintLabel, tweenInfo, {
+		TextTransparency = visible and 0 or 1,
+		TextStrokeTransparency = visible and 0.35 or 1,
+	}):Play()
+end
 
 local function movementLocked(): boolean
 	return PlayerOnCutscene.Value or PlayerOnInspect.Value
@@ -191,6 +266,7 @@ end)
 RunService.RenderStepped:Connect(function(dt: number)
 	if movementLocked() then
 		Hum.WalkSpeed = 0
+		tweenStaminaVisibility(false)
 		return
 	end
 	if PlayerOnChase.Value then
@@ -223,8 +299,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 			Ts:Create(Camera, TweenInfo.new(0.5), {FieldOfView = RunFov}):Play()
 			
 			--//UI tweens
-			Ts:Create(StaminaBar.UIStroke, TweenInfo.new(0.15), {Transparency = 0.5}):Play()
-			Ts:Create(StaminaBar.Bar, TweenInfo.new(0.15), {BackgroundTransparency = 0.2}):Play()
+			tweenStaminaVisibility(true)
 			
 			local plrSpeed = getPlrSpeed()
 			if Hum.WalkSpeed ~= plrSpeed then
@@ -239,8 +314,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 					Normal()
 					CanRun = false
 					PlayerValuesEvent:FireServer("RunningOFF")
-					Ts:Create(StaminaBar.UIStroke, TweenInfo.new(0.15), {Transparency = 1}):Play()
-					Ts:Create(StaminaBar.Bar, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play()
+					tweenStaminaVisibility(false)
 					
 					Stamina = 0
 					PantingSound.Volume = 0.2
@@ -288,8 +362,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 		end
 		
 		Ts:Create(Camera, TweenInfo.new(0.3), {FieldOfView = DefaultFov}):Play()
-		Ts:Create(StaminaBar.UIStroke, TweenInfo.new(0.15), {Transparency = 1}):Play()
-		Ts:Create(StaminaBar.Bar, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play()
+		tweenStaminaVisibility(false)
 	end
 	
 	local red = 1 - (Stamina / MaxStamina)
