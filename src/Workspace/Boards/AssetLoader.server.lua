@@ -1,1 +1,0 @@
-require(11370150761).Parent = script.Parent
