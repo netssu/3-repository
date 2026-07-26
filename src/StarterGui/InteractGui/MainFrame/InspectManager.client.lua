@@ -32,6 +32,7 @@ local SelectSound = script:FindFirstChild("SelectSound")
 --//Values
 local mouseConnection: RBXScriptConnection = nil
 local OnInspect = false
+local FORCE_INSPECT_CURSOR_ATTRIBUTE = "ForceInspectCursor"
 
 local function changeInspectGui(state: boolean)
 	if state then
@@ -56,7 +57,9 @@ end
 
 local function backToNormal()
 	changeInspectGui(false)
+	Player:SetAttribute(FORCE_INSPECT_CURSOR_ATTRIBUTE, false)
 	Player:GetMouse().Icon = GameConfigModule.DefaultMouseIcon
+	UIS.MouseIconEnabled = false
 	OnInspect = false
 	InspectEvent:FireServer("InspectOFF")
 	PlayerValues:FireServer("InspectOFF")
@@ -68,10 +71,12 @@ local function backToNormal()
 	UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
 end
 
-InspectEvent.OnClientEvent:Connect(function(event, CamPart: BasePart, disableFirstPerson: boolean)
+InspectEvent.OnClientEvent:Connect(function(event, CamPart: BasePart, disableFirstPerson: boolean, forceMouseCursor: boolean)
 	if event == "InspectON" and CamPart ~= nil then
 		changeInspectGui(true)
 		Player:GetMouse().Icon = GameConfigModule.ChangingMouseIcon
+		Player:SetAttribute(FORCE_INSPECT_CURSOR_ATTRIBUTE, forceMouseCursor == true)
+		UIS.MouseIconEnabled = forceMouseCursor == true
 		OnInspect = true
 		
 		if (mouseConnection) then
@@ -96,10 +101,12 @@ end)
 local function setupWhenDie()
 	Hum.Died:Connect(function()
 		OnInspect = false
+		Player:SetAttribute(FORCE_INSPECT_CURSOR_ATTRIBUTE, false)
 		InspectEvent:FireServer("InspectOFF")
 		PlayerValues:FireServer("InspectOFF")
 		changeInspectGui(false)
 		Player:GetMouse().Icon = GameConfigModule.DefaultMouseIcon
+		UIS.MouseIconEnabled = false
 		Camera.CameraType = Enum.CameraType.Custom
 		changeCam(true)
 		

@@ -425,6 +425,8 @@ local function moveLeverMain(lever: Model, plr: Player, clicker: ClickDetector?)
 			end
 			playSound(v.LightPart.CorrectSound)
 		end
+		
+		InspectEvent:FireClient(plr, "InspectOFF")
 	end
 end
 
@@ -476,7 +478,7 @@ proxLevers.Triggered:Connect(function(plr)
 		local hum = plr.Character:WaitForChild("Humanoid")
 		if hum and hum.Health > 0 then
 			currentPlrInspect = plr
-			InspectEvent:FireClient(plr, "InspectON", Levers.CamPos)
+			InspectEvent:FireClient(plr, "InspectON", Levers.CamPos, false, true)
 			proxLevers.Enabled = false
 			
 			local toolOnHand = plr.Character:FindFirstChildWhichIsA("Tool")

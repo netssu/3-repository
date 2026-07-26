@@ -14,6 +14,7 @@ local Mouse = Player:GetMouse()
 local MainFrame = script.Parent
 local LOCKED_CURSOR_ICON = "rbxasset://textures/MouseLockedCursor.png"
 local UI_CURSOR_ICON = "rbxasset://textures/Cursors/KeyboardMouse/ArrowFarCursor.png"
+local FORCE_INSPECT_CURSOR_ATTRIBUTE = "ForceInspectCursor"
 
 local oldCrosshair = MainFrame:FindFirstChild("CustomCrosshair")
 if oldCrosshair then
@@ -55,7 +56,7 @@ local function isInCutscene()
 	local camera = workspace.CurrentCamera
 	return (onCutscene and onCutscene.Value)
 		or Player:GetAttribute("CutsceneCameraLocked")
-		or (camera and camera.CameraType == Enum.CameraType.Scriptable)
+		or (camera and camera.CameraType == Enum.CameraType.Scriptable and Player:GetAttribute(FORCE_INSPECT_CURSOR_ATTRIBUTE) ~= true)
 end
 
 local function isInspecting()
